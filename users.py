@@ -7,6 +7,8 @@ and server derive the same kerberos key by PID. This password-based store is the
 same mechanism, and also lets a NintendoClients test client connect with no Cemu.
 """
 import collections
+import functools
+import os
 
 from nintendo.nex import kerberos
 
@@ -49,8 +51,23 @@ def resolve(username):
     return None
 
 
+# KeyDerivationOld(base, count) — Wii U-era derivation: ~65000 MD5 rounds per key. If
+# real Cemu tickets fail to decrypt, this is a candidate to swap (KeyDerivationNew / params).
+_DERIV = kerberos.KeyDerivationOld(65000, 1024)
+
+
+@functools.lru_cache(maxsize=4096)
+def _derive_cached(password, pid):
+    return _DERIV.derive_key(password, pid)
+
+
 def derive_key(user):
-    # KeyDerivationOld(base, count) — Wii U-era derivation. If real Cemu tickets
-    # fail to decrypt, this is a candidate to swap (KeyDerivationNew / params).
-    deriv = kerberos.KeyDerivationOld(65000, 1024)
-    return deriv.derive_key(user.password.encode("ascii"), user.pid)
+    """Derive a kerberos key for `user`. Memoized on (password, pid): the derivation is
+    a deterministic ~65k-round MD5 chain (pure function), so caching is identity-preserving
+    and a big win — every login derives the SECURE-SERVER key (target PID 2, constant), and
+    a reconnecting player re-derives the same key. Set MH3U_AUTH_FAST=0 to force the
+    uncached path (for A/B measuring the cache's effect)."""
+    pw = user.password.encode("ascii")
+    if os.environ.get("MH3U_AUTH_FAST") == "0":
+        return _DERIV.derive_key(pw, user.pid)
+    return _derive_cached(pw, user.pid)

@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(_HERE, "..", "external", "NintendoClients"))
 sys.path.insert(0, _HERE)
 
 import asyncio
+import concurrent.futures
 import aioconsole
 
 from nintendo.nex import rmc, authentication, common, settings
@@ -38,6 +39,20 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("mh3u.server")
+
+# Kerberos key derivation is ~65k rounds of MD5 — CPU-bound pure-Python, so it holds the GIL.
+# Run it on a SINGLE dedicated worker thread (not asyncio.to_thread's default ~32-thread pool):
+# with one worker, the event loop competes with exactly one CPU thread for the GIL and keeps
+# getting time-slices to ack PRUDP, so a login surge no longer freezes the loop into 30s+ resend
+# cascades. A bigger pool can't go faster (the GIL serializes the MD5 loops anyway) and only
+# starves the loop more. Derivations thus serialize but stay off the loop. (load test 2026-06-23)
+_AUTH_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="mh3u-auth")
+
+# PRUDP logs EVERY packet (pings included) at WARNING — handy while reverse-engineering the
+# handshake, but it floods the log and burns CPU/IO on every packet at scale. Quiet it to
+# ERROR by default; set MH3U_PKT_LOG=1 to restore per-packet tracing for debugging.
+if os.environ.get("MH3U_PKT_LOG") != "1":
+    logging.getLogger("nintendo.nex.prudp").setLevel(logging.ERROR)
 
 
 def build_settings():
@@ -81,7 +96,7 @@ class AuthenticationServer(authentication.AuthenticationServer):
         response = rmc.RMCResponse()
         response.result = common.Result.success()
         response.pid = user.pid
-        response.ticket = self._ticket(user, server)
+        response.ticket = await self._issue_ticket(user, server)
         response.connection_data = conn_data
         response.server_name = config.SERVER_DISPLAY_NAME
         logger.info("  -> issued ticket for pid=%s, pointing at %s:%s",
@@ -104,10 +119,23 @@ class AuthenticationServer(authentication.AuthenticationServer):
         tgt = users.by_pid(target) or users.by_pid(config.SECURE_SERVER_PID)
         response = rmc.RMCResponse()
         response.result = common.Result.success()
-        response.ticket = self._ticket(src, tgt)
+        response.ticket = await self._issue_ticket(src, tgt)
         logger.info("  -> issued ticket for %s -> %s (secure %s:%s)",
                     source, target, config.SERVER_ADDRESS, config.SECURE_PORT)
         return response
+
+    async def _issue_ticket(self, source, target):
+        # Ticket construction is dominated by two ~65k-round MD5 key derivations (CPU-bound,
+        # GIL-held). Run it on the single dedicated _AUTH_POOL worker so the event loop stays
+        # responsive enough to ack PRUDP during a login surge — without this, a burst of
+        # simultaneous logins froze the loop into 30–90s PRUDP resend cascades that dropped
+        # most clients (load test 2026-06-23). Keys are memoized (users.derive_key), so the
+        # server key is free after the first login. MH3U_AUTH_FAST=0 forces the old inline,
+        # on-the-loop-thread, uncached path (for A/B measurement).
+        if os.environ.get("MH3U_AUTH_FAST") == "0":
+            return self._ticket(source, target)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_AUTH_POOL, self._ticket, source, target)
 
     def _ticket(self, source, target):
         s = self.settings

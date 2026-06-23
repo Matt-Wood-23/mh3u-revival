@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Large RAM dumps / capture artifacts (research only, never source)
+guestram.bin
+guestram.manifest.json
+*.bin
+*.dump
+*.pcap
+
+# Local secrets / per-user identity (never commit)
+*.dat
+*.token
+.env
+
+# Runtime logs — contain live IPs/PIDs/session data, never source
+*.log

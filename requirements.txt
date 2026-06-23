@@ -1,0 +1,7 @@
+# MH3U NEX server deps. Python 3.13 verified.
+# NintendoClients itself is vendored at ../external/NintendoClients (git clone),
+# added to sys.path by server.py — not a pip package.
+anynet==1.1.0     # PIN: 1.2.x breaks on Py3.13 (forward-ref NameError in tls.py)
+anyio
+aioconsole
+pycryptodome

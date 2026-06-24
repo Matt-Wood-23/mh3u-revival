@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netifaces"
+version = "99.0.0"
+description = "Pure-Python stub of netifaces for MH3U Revival — satisfies anynet's unused import so the server installs with no C compiler."
+
+[tool.setuptools]
+py-modules = ["netifaces"]

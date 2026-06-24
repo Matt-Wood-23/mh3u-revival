@@ -152,6 +152,10 @@ same hall and enter your room.
 > separate box, set `MH3U_HOST_FREE=0`. See [ARCHITECTURE.md §4](ARCHITECTURE.md#4-the-rejoin-problem-and-its-fix-the-hard-part).
 
 ## Troubleshooting
+
+- **`pip install` tries to compile `netifaces` / asks for Visual C++ Build Tools** = you're on
+  an old checkout. `git pull` (or re-clone) and reinstall — current `requirements.txt` ships a
+  pure-Python `netifaces` stub, so **no compiler is needed**. Run pip from the repo root.
 - **A friend's device never appears in your `tailscale status`** = their Tailscale client is on
   *their own* tailnet, not yours. They switch to your tailnet in the Tailscale UI and **log out /
   back in** on the client (or join via an auth key + `--force-reauth`). See the gotcha box in step 3.

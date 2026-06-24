@@ -27,8 +27,9 @@ Nintendo files. You bring only your **own legal MH3U dump**.
    The host gives you their Tailscale IP (a `100.x` address). Make sure you can reach it before
    playing: `tailscale ping <ip>` → "pong".
 
-3. **Copy your MH3U dump** to this PC (not included — bring your own). You need both the
-   base game `[0005000010118300]` and the update `[0005000e10118300]`. In Cemu:
+3. **Copy your MH3U game files (your "dump")** to this PC — the same game data you'd use to
+   play MH3U in Cemu (not included; bring your own legal copy). You need both the base game
+   `[0005000010118300]` and the update `[0005000e10118300]`. In Cemu:
    *File → Add games directory →* the folder containing both.
 
    > **Already have an MH3U save in another Cemu?** This bundle is a *fresh* portable Cemu, so

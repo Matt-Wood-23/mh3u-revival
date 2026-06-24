@@ -3,6 +3,9 @@
 > Status: **beta**. This document describes how the self-hosted MH3U online stack
 > works and *why* it's built this way. Sections marked **(provisional)** are not yet
 > end-to-end tested at the time of writing.
+>
+> **Just want to play?** This is the under-the-hood deep-dive — for plain step-by-step setup
+> see **[HOSTING.md](HOSTING.md)** (running a game) or **[PLAYING.md](PLAYING.md)** (joining one).
 
 Self-hosted Monster Hunter 3 Ultimate (Wii U) online multiplayer on Cemu, with **no
 console dump**. The model is **"I host, friends join"**: one person runs the server and
@@ -42,7 +45,8 @@ matchmaking and presence; it never relays gameplay.
 Credentials are not secrets — they're baked into the retail game and were recovered by
 RE: `GAME_SERVER_ID = 0x10104d00`, `ACCESS_KEY = "cb2b2f5a"`, `NEX_VERSION = 30000`
 (see `config.py`). Built on the open-source
-[NintendoClients](https://github.com/kinnay/NintendoClients) library.
+[NintendoClients](https://github.com/kinnay/NintendoClients) library — the one dependency
+that isn't on pip, so a host clones it next to the repo (see [HOSTING.md §1](HOSTING.md)).
 
 ---
 

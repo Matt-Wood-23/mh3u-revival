@@ -175,13 +175,13 @@ explicitly **out of scope** (it's what projects like Pretendo do). Instead:
   many-players / multi-room load profile.
 - Open-source, non-commercial, dumpless, self-hosted. **Not** a public service.
 
-**Tested:** identity generation (format + uniqueness + idempotency); clean leave/rejoin
-and hard-drop rejoin (self-healing); reaper on a true abrupt close; four players P2P over
-an overlay (Tailscale), cross-machine.
+**Tested:** identity generation (format + uniqueness + idempotency); a launcher-generated
+random-PID account loaded by Cemu online end-to-end (a remote friend's bundle, in a real
+session); clean leave/rejoin and hard-drop rejoin (self-healing); reaper on a true abrupt
+close; four players P2P over an overlay (Tailscale), cross-machine.
 
-**Not yet tested (provisional):** Cemu loading a launcher-generated account end-to-end;
-raw bare-internet hole-punch (only ever proven *inside* Tailscale, which already flattens
-NAT); port-forwarded hosting over the open internet.
+**Not yet tested (provisional):** raw bare-internet hole-punch (only ever proven *inside*
+Tailscale, which already flattens NAT); port-forwarded hosting over the open internet.
 
 **Roadmap:** masked overlay (a join-code launcher that hides Tailscale setup); a relay
 fallback for symmetric/CGNAT pairs; larger-capacity / community-hub hosting (under

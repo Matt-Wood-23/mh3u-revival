@@ -42,10 +42,9 @@ If you represent a rights-holder with a concern, please open an issue.
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §4).
 - ✅ Per-player random unique identity — no central accounts, no sign-up.
 
-**Still being tested (don't expect polish yet):** a launcher-
-generated account end-to-end, raw bare-internet hole-punch. This is a **beta** — it's scoped to
-**4 players (one room) per server** on purpose, because that's the configuration that's
-been hardened.
+**Still being tested (don't expect polish yet):** raw bare-internet hole-punch. This is a
+**beta** — it's scoped to **4 players (one room) per server** on purpose, because that's the
+configuration that's been hardened.
 
 ---
 

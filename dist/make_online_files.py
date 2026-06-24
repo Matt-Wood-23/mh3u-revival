@@ -73,4 +73,4 @@ if __name__ == "__main__":
     count = generate(root)
     print(f"wrote {count} dummy online-gate files under {root}")
     print("  otp.bin (1024B zeros), seeprom.bin (512B zeros), 49 empty-DER cert stubs")
-    print("  -> restart Cemu; enable online + set Network Service = Custom in Options > Account")
+    print("  -> restart Cemu; enable online + set Network Service = Nintendo in Options > Account")

@@ -120,6 +120,16 @@ MH3U_ADVERTISE=<your-reachable-ip> python server.py
 > [ARCHITECTURE.md §5](ARCHITECTURE.md#5-reachability--networking).
 
 ## 4. Your own Cemu (you play too)
+
+> **Use ONE Cemu, and it must be the patched fork.** The account file, the online-gate files,
+> and `mh3u_server.txt` all live in a specific Cemu's data folder — so the Cemu you *launch* has
+> to be the same one you put those files in, or you'll get no green "valid online account"
+> checkmark and the game will fail Network Mode without ever contacting the server. **Simplest:
+> just play through the MH3U Online Bundle's Cemu** — its data root is the bundle's `portable\`
+> folder, so point the two scripts below at `…\MH3U_Online_Bundle\portable` (and its
+> `…\portable\mlc01\usr\save\system\act\80000001` for the account), then launch the bundle's
+> `Cemu_release.exe`. Don't generate files into the bundle and then launch a *different* Cemu.
+
 - Generate your player identity once: run `dist/make_account.py` (random unique PID), or use
   the launcher from the MH3U Online Bundle. Pin a fixed PID with `--player 1` if you like.
 - Generate the dummy online-gate files: `dist/make_online_files.py "<cemu_data>"`.
@@ -164,4 +174,13 @@ same hall and enter your room.
   → "pong"?). 99% of the time it's the overlay, not the build.
 - **Server sees zero packets from a LAN joiner** = many home/Wi-Fi networks block PC↔PC UDP
   (client/AP isolation). Don't fight it — use an overlay, which tunnels past it.
+- **EU or JP copy of MH3U gets no green checkmark / never reaches the server** = the patched
+  Cemu's redirect is gated on each region's title ID. Builds at/after this note accept **US
+  (`0005000010118300`), EU (`0005000010116300`), and JP (`000500001010ec00`)**; an older
+  build only redirects US, so an EU/JP game silently talks to dead Nintendo servers (no
+  movement). Update to a current patched Cemu build. **⚠️ Only the US version has been tested
+  end-to-end so far** — EU/JP support is wired in but unverified; if you run EU/JP, please
+  report whether it connects. *(If an EU/JP client reaches the server but the log shows a
+  SYN/CONNECT signature rejection, that region's PRUDP access key differs from US's `cb2b2f5a`
+  and must be added server-side — see ARCHITECTURE §1.)*
 - **`mh3u_server.txt` must be ≤15 chars** (a Wii U field limit) — use an **IP**, not a domain.

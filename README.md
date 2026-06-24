@@ -42,9 +42,13 @@ If you represent a rights-holder with a concern, please open an issue.
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §4).
 - ✅ Per-player random unique identity — no central accounts, no sign-up.
 
-**Still being tested (don't expect polish yet):** raw bare-internet hole-punch. This is a
-**beta** — it's scoped to **4 players (one room) per server** on purpose, because that's the
-configuration that's been hardened.
+**Game version:** only the **US** version of MH3U has been tested end-to-end so far. The patched
+Cemu now also redirects the **EU** and **JP** versions, but those are **unverified** — if you run
+EU/JP and it connects (or doesn't), please [report back](#reporting-bugs).
+
+**Still being tested (don't expect polish yet):** raw bare-internet hole-punch, and EU/JP game
+versions. This is a **beta** — it's scoped to **4 players (one room) per server** on purpose,
+because that's the configuration that's been hardened.
 
 ---
 

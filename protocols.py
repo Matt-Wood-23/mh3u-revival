@@ -454,6 +454,24 @@ class DataStoreServer(_Trace, datastore.DataStoreServer):
     # treat the hall as broken. Return an empty result set.
     LABEL = "DataStore"
 
+    async def handle_search_object(self, client, input, output):
+        # MH3U is NEX 3.0.0 — it predates structure headers (settings["nex.struct_header"]
+        # is False), so structures decode with NO version gating: NintendoClients' load()
+        # reads the *latest* DataStoreSearchParam field set straight off the wire. MH3U's
+        # retail param omits the trailing use_cache/total_count_enabled/data_types fields
+        # (added in a later DataStore revision), so the generic extract() runs off the end
+        # of the buffer -> OverflowError -> RMC returns an error -> the game treats the world
+        # as broken and crashes the moment you accept the join. We never use the search
+        # params (we always answer empty), so decode best-effort and never let a short
+        # buffer become an RMC error.
+        try:
+            input.extract(datastore.DataStoreSearchParam)
+        except Exception as e:
+            logger.info("search_object: tolerated incompatible DataStoreSearchParam (%s)",
+                        type(e).__name__)
+        response = await self.search_object(client, None)
+        output.add(response)
+
     async def search_object(self, client, param):
         res = datastore.DataStoreSearchResult()
         res.total_count = 0

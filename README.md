@@ -66,9 +66,12 @@ lines.
 - **Joining a friend's game?** → [docs/PLAYING.md](docs/PLAYING.md)
 - **How it works / design decisions** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
-Quick host version:
+Quick host version (needs [Python](https://www.python.org/downloads/), run in a terminal):
 
 ```bash
+git clone https://github.com/Matt-Wood-23/mh3u-revival.git
+git clone https://github.com/kinnay/NintendoClients.git external/NintendoClients   # not on pip
+cd mh3u-revival
 pip install -r requirements.txt          # pin anynet==1.1.0
 MH3U_ADVERTISE=<your-reachable-ip> python server.py
 ```

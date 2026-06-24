@@ -69,7 +69,7 @@ Quick host version (needs [Python](https://www.python.org/downloads/), run in a 
 
 ```bash
 git clone https://github.com/Matt-Wood-23/mh3u-revival.git
-git clone https://github.com/kinnay/NintendoClients.git external/NintendoClients   # not on pip
+git clone --branch mh3u-revival https://github.com/Matt-Wood-23/NintendoClients.git external/NintendoClients   # patched fork, not on pip
 cd mh3u-revival
 pip install -r requirements.txt          # pin anynet==1.1.0
 MH3U_ADVERTISE=<your-reachable-ip> python server.py
@@ -137,7 +137,10 @@ is the **[mh3u-revival branch of the Cemu fork](https://github.com/Matt-Wood-23/
 ## Credits
 
 - [NintendoClients](https://github.com/kinnay/NintendoClients) (Kinnay) — the NEX/PRUDP/RMC
-  library this server is built on.
+  library this server is built on. MH3U needs a small patch (legacy PRUDP v1 signature),
+  carried in a fork:
+  [Matt-Wood-23/NintendoClients @ mh3u-revival](https://github.com/Matt-Wood-23/NintendoClients/tree/mh3u-revival)
+  (MIT, same as upstream).
 - The [Cemu](https://cemu.info) project — the emulator the patched client forks.
 - [cemu-re-mcp](https://github.com/Matt-Wood-23/cemu-re-mcp) — the GDB-stub / pymem
   reverse-engineering bridge used to decode MH3U's online protocol and memory layout.

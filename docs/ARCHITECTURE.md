@@ -45,8 +45,10 @@ matchmaking and presence; it never relays gameplay.
 Credentials are not secrets — they're baked into the retail game and were recovered by
 RE: `GAME_SERVER_ID = 0x10104d00`, `ACCESS_KEY = "cb2b2f5a"`, `NEX_VERSION = 30000`
 (see `config.py`). Built on the open-source
-[NintendoClients](https://github.com/kinnay/NintendoClients) library — the one dependency
-that isn't on pip, so a host clones it next to the repo (see [HOSTING.md §1](HOSTING.md)).
+[NintendoClients](https://github.com/kinnay/NintendoClients) library — specifically a small
+MH3U-patched [fork](https://github.com/Matt-Wood-23/NintendoClients) (legacy PRUDP v1
+signature; upstream lacks it and breaks on Python 3.13). It's the one dependency that isn't on
+pip, so a host clones it next to the repo (see [HOSTING.md §1](HOSTING.md)).
 
 ---
 

@@ -1,6 +1,7 @@
 # MH3U NEX server deps. Python 3.13 verified.
-# NintendoClients itself is vendored at ../external/NintendoClients (git clone),
-# added to sys.path by server.py — not a pip package.
+# NintendoClients is the MH3U-patched fork (Matt-Wood-23/NintendoClients @ mh3u-revival):
+# cloned to ../external/NintendoClients, added to sys.path by server.py — not a pip package.
+# (Upstream lacks the legacy-PRUDP-v1 patch MH3U needs and breaks on Python 3.13.)
 anynet==1.1.0     # PIN: 1.2.x breaks on Py3.13 (forward-ref NameError in tls.py)
 anyio
 aioconsole

@@ -19,16 +19,17 @@ probably already have the last two:
 > Terminal. You don't need a code editor or anything else. Open one and you're ready.
 
 ## 1. Get the server and run it
-Download this repo, then grab the one extra library it needs (NintendoClients) and put it
-right where the server looks for it. The commands below use **Git** — the easiest way,
+Download this repo, then grab the one extra library it needs — a small MH3U-patched fork of
+NintendoClients — and put it right where the server looks for it. The commands below use
+**Git** — the easiest way,
 because it drops everything in the right place automatically. (No Git? See **No Git?** just
 below.) In a terminal:
 ```bash
 # 1. get the server
 git clone https://github.com/Matt-Wood-23/mh3u-revival.git
 
-# 2. get the one library it needs, in the exact spot the server expects it
-git clone https://github.com/kinnay/NintendoClients.git external/NintendoClients
+# 2. get the patched NintendoClients it needs, in the exact spot the server expects it
+git clone --branch mh3u-revival https://github.com/Matt-Wood-23/NintendoClients.git external/NintendoClients
 
 # 3. install the small pip deps and start it
 cd mh3u-revival
@@ -36,7 +37,10 @@ pip install -r requirements.txt        # pin anynet==1.1.0 (1.2.x breaks import 
 python server.py
 ```
 **Don't skip step 2** — it's the one thing that isn't pip-installable, and without it the
-server quits right away with an `import nintendo` error. It binds `0.0.0.0:1223` (auth) +
+server quits right away with an `import nintendo` error. (It's a small fork of
+[NintendoClients](https://github.com/kinnay/NintendoClients): MH3U needs a legacy-PRUDP-v1
+patch that upstream doesn't carry, and upstream also crashes on Python 3.13 — so clone the
+fork's `mh3u-revival` branch, not upstream.) It binds `0.0.0.0:1223` (auth) +
 `0.0.0.0:1224` (secure).
 
 > **No Git?** You can download both from GitHub's green **Code → Download ZIP** button
@@ -45,8 +49,11 @@ server quits right away with an `import nintendo` error. It binds `0.0.0.0:1223`
 >
 > 1. Download the **mh3u-revival** ZIP and unzip it (it comes out as `mh3u-revival-main` —
 >    rename it to `mh3u-revival` if you like; the name doesn't matter).
-> 2. Download the **NintendoClients** ZIP, unzip it, and **rename** the folder from
->    `NintendoClients-master` to just **`NintendoClients`**.
+> 2. Download the **NintendoClients** ZIP from the fork
+>    ([Matt-Wood-23/NintendoClients](https://github.com/Matt-Wood-23/NintendoClients) → green
+>    **Code → Download ZIP**; its default branch is already the right `mh3u-revival` one),
+>    unzip it, and **rename** the folder from `NintendoClients-mh3u-revival` to just
+>    **`NintendoClients`**.
 > 3. Arrange them so an **`external`** folder sits *next to* the server folder, with
 >    NintendoClients inside it.
 >

@@ -20,9 +20,9 @@ probably already have the last two:
 
 ## 1. Get the server and run it
 Download this repo, then grab the one extra library it needs (NintendoClients) and put it
-right where the server looks for it. The commands use **Git** to download — if you don't
-have it, [install Git](https://git-scm.com/downloads) first (or download each repo as a ZIP
-from its GitHub page). In a terminal:
+right where the server looks for it. The commands below use **Git** — the easiest way,
+because it drops everything in the right place automatically. (No Git? See **No Git?** just
+below.) In a terminal:
 ```bash
 # 1. get the server
 git clone https://github.com/Matt-Wood-23/mh3u-revival.git
@@ -38,6 +38,28 @@ python server.py
 **Don't skip step 2** — it's the one thing that isn't pip-installable, and without it the
 server quits right away with an `import nintendo` error. It binds `0.0.0.0:1223` (auth) +
 `0.0.0.0:1224` (secure).
+
+> **No Git?** You can download both from GitHub's green **Code → Download ZIP** button
+> instead — you just have to place them by hand, because the server looks for NintendoClients
+> at an exact spot:
+>
+> 1. Download the **mh3u-revival** ZIP and unzip it (it comes out as `mh3u-revival-main` —
+>    rename it to `mh3u-revival` if you like; the name doesn't matter).
+> 2. Download the **NintendoClients** ZIP, unzip it, and **rename** the folder from
+>    `NintendoClients-master` to just **`NintendoClients`**.
+> 3. Arrange them so an **`external`** folder sits *next to* the server folder, with
+>    NintendoClients inside it.
+>
+> ```text
+> (any folder)/
+>   mh3u-revival/        ← the server (run the commands here)
+>   external/
+>     NintendoClients/   ← renamed, no "-master"
+> ```
+>
+> Then run the `cd mh3u-revival`, `pip install`, and `python server.py` lines above (skip the
+> two `git clone` lines). If you get `import nintendo`, the `external/NintendoClients` folder
+> is named or placed wrong.
 
 ## 2. Tell the server your reachable IP
 So your co-located host player (and remote joiners) are advertised a usable address:

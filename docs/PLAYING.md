@@ -49,7 +49,7 @@ Nintendo files. You bring only your **own legal MH3U dump**.
    > Cemu auto-creates its own (which would collide with everyone else's).
 
 5. **Enable online once:** Cemu → *Options → General Settings → Account* — set **Network
-   Service = Custom** and make sure online play is enabled (the online-requirements status
+   Service = Nintendo** and make sure online play is enabled (the online-requirements status
    should read all green; the bundle's dummy gate files are what satisfy it). Then **restart
    Cemu** for it to take effect.
 

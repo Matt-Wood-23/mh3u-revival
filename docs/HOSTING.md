@@ -73,7 +73,7 @@ MH3U_ADVERTISE=<your-reachable-ip> python server.py
 - Set your Cemu's `mh3u_server.txt` to your `<reachable-ip>` (with `MH3U_ADVERTISE` set,
   `127.0.0.1` also works for the co-located host).
 - **Turn online on in Cemu:** *Options → General Settings → Account* — set **Network Service =
-  Custom** and make sure online play is enabled (the online-requirements status should be all
+  Nintendo** and make sure online play is enabled (the online-requirements status should be all
   green; that's what the dummy gate files above satisfy). **Restart Cemu** for it to take effect.
 - **Bringing an existing save?** If you already played MH3U in another Cemu, copy your save
   folder into this Cemu's data (`mlc01\usr\save\00050000\10118300\...`) so you keep your hunter.

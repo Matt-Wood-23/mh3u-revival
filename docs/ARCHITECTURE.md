@@ -70,6 +70,34 @@ auto-provisions any numeric PID it sees (`users.py:resolve`) and keys everything
   **last-writer-wins** — it never rejects, because a same-PID re-register is
   overwhelmingly a legitimate **reconnect**, which must not be broken (see §4).
 
+### Satisfying Cemu's online gate — without a dump
+
+Before MH3U will even *attempt* Network Mode, Cemu has to consider the account
+"online-ready." That's **three independent checks**, and the project satisfies each with
+right-shaped *local* data — never Nintendo data — because the patched fork sends the real
+connection to the host's server, so none of these checks needs a real Nintendo handshake:
+
+1. **`HasRequiredOnlineFiles()`** — `otp.bin` / `seeprom.bin` / certificates must *exist*.
+   We ship zeros + 4-byte stubs (`dist/make_online_files.py`); it's a file-*existence* check,
+   not a crypto check (see §6).
+2. **`IsValidOnlineAccount()`** — the `account.dat` must have a non-empty `AccountId`, a cached
+   password (`IsPasswordCacheEnabled=1` + nonzero `AccountPasswordCache`), and a nonzero
+   `PrincipalId` (Cemu's `Account::GetOnlineAccountError`). The launcher mints exactly that.
+   **Failure mode that bit early testers:** if Cemu is ever launched *before* the launcher runs,
+   it auto-creates a **blank offline** account (all those fields zero) and the gate fails with
+   *"not linked to a NNID or PNID."* So the launcher **self-repairs** — it detects a blank
+   account and re-mints (backing the blank up to `account.dat.offline.bak`) — and launch order
+   no longer matters.
+3. **NetworkService = Nintendo** — a per-account value in `settings.xml`
+   (`<SelectedService … Service="1"/>`; the bundle pre-bakes it). The *Network Service* radio in
+   Cemu's GUI is only editable when checks 1+2 already pass *and* no game is running
+   (Cemu's `GeneralSettings2`), so a **greyed-out radio is a symptom of an unmet gate, never the
+   cause** — the fix is repairing the account (re-run the launcher), not clicking the radio.
+
+All three are Cemu-local preconditions; satisfying them with dummies + a self-consistent local
+account is what makes dumpless online possible. (The player-facing version of this lives in
+[PLAYING.md](PLAYING.md) troubleshooting.)
+
 ---
 
 ## 3. Matchmaking & room lifecycle
@@ -201,5 +229,5 @@ investigation — the host explicitly does not run central infra for everyone).
 | `host_roster_free.py` | the host-Cemu roster free (the rejoin fix); co-located host only |
 | `reaper.py` | liveness reaper (ghost-population cleanup) |
 | `users.py` / `config.py` | PID resolution + kerberos derivation / RE'd credentials |
-| `dist/` | player-distribution: `make_account.py`, `make_online_files.py` |
+| `dist/` | player-distribution: `PLAY MH3U ONLINE.bat` (mints/repairs identity + launches), `make_account.py`, `make_online_files.py`, `bundle_settings.xml` (pre-baked online gate) |
 | `tests/` | in-process, dump-free self-tests (auth / matchmaking / community) + `udp_probe_listen.py` reachability diagnostic |

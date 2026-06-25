@@ -3,7 +3,25 @@
 You run the server; your friends point their patched Cemu at you. The server does auth +
 matchmaking + presence — the hunt itself is peer-to-peer. **Beta: 4 players (one room).**
 
-## What you need
+## Two ways to host
+
+**Easiest — the Host Add-on (no Python, nothing to install).** Download the **MH3U Host Add-on**
+(`server.exe` + `HOST_MH3U.bat`) and drop both files in the **same folder as the MH3U Online
+Bundle** you play with. Then:
+
+1. Get your friends onto your **Tailscale** network (see [section 3](#3-make-the-server-reachable) — that part is the same either way).
+2. Double-click **`HOST_MH3U.bat`** — it auto-detects your Tailscale IP, prints the **address your
+   friends type in**, and runs the server. Leave that window open.
+3. Play normally: run **`PLAY MH3U ONLINE.bat`** and enter **`127.0.0.1`** as the host IP (you're
+   on the same PC as the server). Online is already enabled in the bundle.
+
+That's the whole thing — `server.exe` is self-contained, so you can **skip the rest of this page**.
+(Details in the add-on's `HOST_README.txt`.)
+
+**From source (advanced).** If you'd rather run or modify the server in Python, the rest of this
+page is for you.
+
+## What you need (from-source path)
 As the host you run a small program (the server) and you also play. Four things — you
 probably already have the last two:
 
@@ -135,11 +153,14 @@ MH3U_ADVERTISE=<your-reachable-ip> python server.py
 - Generate the dummy online-gate files: `dist/make_online_files.py "<cemu_data>"`.
 - Set your Cemu's `mh3u_server.txt` to your `<reachable-ip>` (with `MH3U_ADVERTISE` set,
   `127.0.0.1` also works for the co-located host).
-- **Turn online on in Cemu:** *Options → General Settings → Account* — set **Network Service =
-  Nintendo** and make sure online play is enabled (the online-requirements status should be all
-  green; that's what the dummy gate files above satisfy). **Restart Cemu** for it to take effect.
-- **Bringing an existing save?** If you already played MH3U in another Cemu, copy your save
-  folder into this Cemu's data (`mlc01\usr\save\00050000\10118300\...`) so you keep your hunter.
+- **Turn online on in Cemu** — *only if you're using your **own** Cemu; the bundle's Cemu already
+  ships with this on, so skip it there.* *Options → General Settings → Account* → set **Network
+  Service = Nintendo** (the online-requirements status should be all green; that's what the dummy
+  gate files above satisfy). **Restart Cemu** for it to take effect.
+- **Bringing an existing save?** If you already played MH3U in another Cemu, **launch the game
+  once first** so Cemu creates the save folder, then **close it** and copy your existing save's
+  contents into `…\mlc01\usr\save\00050000\10118300\user\80000001\` (that `user\80000001` folder
+  doesn't exist until the first launch). The save's **region must match the game's** region.
 
 ## 5. Play
 Launch MH3U → Network Mode → enter a Gathering Hall → **Create a Room**. Friends join the

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<content>
+    <logflag>0</logflag>
+    <advanced_ppc_logging>false</advanced_ppc_logging>
+    <mlc_path></mlc_path>
+    <permanent_storage>true</permanent_storage>
+    <proxy_server></proxy_server>
+    <play_boot_sound>false</play_boot_sound>
+    <console_language>1</console_language>
+    <GamePaths/>
+    <GameCache/>
+    <GraphicPack/>
+    <Graphic>
+        <api>1</api>
+        <device></device>
+        <vkDevice></vkDevice>
+        <mtlDevice>0</mtlDevice>
+        <VSync>0</VSync>
+        <GX2DrawdoneSync>true</GX2DrawdoneSync>
+        <UpscaleFilter>1</UpscaleFilter>
+        <DownscaleFilter>0</DownscaleFilter>
+        <FullscreenScaling>0</FullscreenScaling>
+        <AsyncCompile>true</AsyncCompile>
+        <vkAccurateBarriers>true</vkAccurateBarriers>
+    </Graphic>
+    <Audio>
+        <api>0</api>
+        <delay>2</delay>
+        <TVChannels>1</TVChannels>
+        <TVVolume>50</TVVolume>
+        <TVDevice>default</TVDevice>
+    </Audio>
+    <Account>
+        <PersistentId>2147483649</PersistentId>
+        <OnlineEnabled>false</OnlineEnabled>
+        <ActiveService>0</ActiveService>
+    </Account>
+    <AccountService>
+        <SelectedService PersistentId="2147483649" Service="1"/>
+    </AccountService>
+    <Debug>
+        <CrashDumpWindows>1</CrashDumpWindows>
+    </Debug>
+    <language>0</language>
+    <use_discord_presence>false</use_discord_presence>
+    <fullscreen_menubar>false</fullscreen_menubar>
+    <check_update>false</check_update>
+    <receive_untested_updates>false</receive_untested_updates>
+    <save_screenshot>true</save_screenshot>
+    <vk_warning>false</vk_warning>
+    <gp_download>false</gp_download>
+    <fullscreen>false</fullscreen>
+</content>

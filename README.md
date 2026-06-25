@@ -41,6 +41,8 @@ If you represent a rights-holder with a concern, please open an issue.
   ghost-population cleanup all recover automatically (see
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §4).
 - ✅ Per-player random unique identity — no central accounts, no sign-up.
+- ✅ **Zero-setup joining:** a ready-to-run bundle with online **pre-enabled** — bring your
+  own dump, double-click the launcher, play. No Cemu account/settings fiddling, no Python.
 
 **Game version:** only the **US** version of MH3U has been tested end-to-end so far. The patched
 Cemu now also redirects the **EU** and **JP** versions, but those are **unverified** — if you run
@@ -69,7 +71,23 @@ lines.
 - **Joining a friend's game?** → [docs/PLAYING.md](docs/PLAYING.md)
 - **How it works / design decisions** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
-Quick host version (needs [Python](https://www.python.org/downloads/), run in a terminal):
+> **Tried an earlier build and got stuck on the online checkmark** — greyed-out *Network Service*,
+> or *"not linked to a NNID or PNID"*? **That's fixed.** Grab the current bundle and just run
+> `PLAY MH3U ONLINE.bat`; the launcher now sets up (or repairs) your online identity on launch, so
+> the green checkmark appears on its own — no Cemu account settings to touch.
+
+**Joining** is the easy path: grab the **MH3U Online Bundle** from the
+[Releases](https://github.com/Matt-Wood-23/mh3u-revival/releases) page — a ready-to-run patched
+Cemu with online pre-enabled. Add your own dump, double-click `PLAY MH3U ONLINE.bat`, enter the
+host's IP, play. See [docs/PLAYING.md](docs/PLAYING.md).
+
+**Hosting — no Python (easiest):** grab the **MH3U Host Add-on** (`server.exe` + `HOST_MH3U.bat`)
+from [Releases](https://github.com/Matt-Wood-23/mh3u-revival/releases) and drop both files next to
+the bundle you play with. Double-click `HOST_MH3U.bat` — it auto-detects your Tailscale IP, prints
+the address friends type in, and runs the self-contained server (nothing to install). Then play
+normally and enter `127.0.0.1` as the host IP. Full details in [docs/HOSTING.md](docs/HOSTING.md).
+
+**Hosting — from source (advanced):** if you'd rather run or modify the server in Python:
 
 ```bash
 git clone https://github.com/Matt-Wood-23/mh3u-revival.git

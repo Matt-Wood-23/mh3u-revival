@@ -18,18 +18,29 @@ across every view the host keeps in sync:
   dirty flags cnx+0x30d2c |= 0x7   (forces the host to recompute member list + redraw)
 Live-proven across 3 clean leave/rejoin cycles (guest pinned to slot 1, no drift/disconnect).
 
+PORTABLE (2026-06-24): self-contained — the Cemu memory access (guest<->host translation via the
+committed-region entry-signature scan) is vendored here, so this works on ANY host machine running
+the bundled Cemu, not just the dev box. The host Cemu process is found by exe name (Cemu_release.exe
+or Cemu.exe); the static guest offsets below are fixed for MH3U US v1.3 (the version this project
+targets) so they carry across installs. Needs `pymem` (bundled into the frozen server.exe).
+
 Fail-safe: any error (no host Cemu, pymem missing, offsets moved) is caught and logged; the server
 keeps running. Enabled by default; set MH3U_HOST_FREE=0 to disable (e.g. remote-host deployments
-where the host Cemu is not on the server machine). Host process disambiguated by exe-path hint
-MH3U_HOST_HINT (default 'e:\\cemu-src').
+where the host Cemu is not on the server machine). If several Cemu processes run on one machine
+(e.g. a dev host+guest pair), set MH3U_HOST_HINT to a substring of the HOST Cemu's exe path to pick
+it; otherwise the first Cemu found is used.
 """
 import os
+import ctypes
 import logging
+from ctypes import wintypes
 
 logger = logging.getLogger("mh3u.hostfree")
 
-HOST_HINT = os.environ.get("MH3U_HOST_HINT", r"e:\cemu-src").lower()
 ENABLED = os.environ.get("MH3U_HOST_FREE", "1") not in ("0", "", "false", "False")
+# Optional exe-path substring to disambiguate when MULTIPLE Cemu processes run (dev only).
+# Empty by default -> a normal host has exactly one Cemu, so no hint is needed.
+HOST_HINT = os.environ.get("MH3U_HOST_HINT", "").lower()
 
 # CNEXSystem-relative offsets (v1.3 US; see handoff)
 O_ROSTER = 0x30d3c
@@ -42,21 +53,128 @@ O_DIRTY = 0x30d2c
 ST_STRIDE = 0x60
 REC = 0x70
 
+# ---- Cemu guest<->host memory (vendored from cemu_re_mcp PymemBridge) ----
+# Cemu maps the WiiU's 32-bit guest space as one big committed region inside the host
+# process; host = region_base + (guest - GUEST_BASE). region_base is per-launch (ASLR),
+# found by scanning committed readable regions for the PPC entry signature at guest 0x02000000.
+GUEST_BASE = 0x02000000
+ENTRY_SIG = bytes.fromhex("600000004e800020")   # nop ; blr  (first 8 bytes of guest code)
+_MEM_COMMIT = 0x1000
+_READABLE = {0x02, 0x04, 0x20, 0x40}             # PAGE_READ*/EXECUTE_READ*
+
+
+class _MBI(ctypes.Structure):
+    _fields_ = [
+        ("BaseAddress", ctypes.c_ulonglong), ("AllocationBase", ctypes.c_ulonglong),
+        ("AllocationProtect", wintypes.DWORD), ("__a", wintypes.DWORD),
+        ("RegionSize", ctypes.c_ulonglong), ("State", wintypes.DWORD),
+        ("Protect", wintypes.DWORD), ("Type", wintypes.DWORD), ("__b", wintypes.DWORD),
+    ]
+
+
+class _PE32(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+        ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+        ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+        ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+        ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_char * 260),
+    ]
+
 
 def _be(b):
     return int.from_bytes(b, "big")
 
 
+def _iter_procs():
+    """Yield (pid, exe_name) for every running process (Toolhelp32, no wmic dependency)."""
+    k = ctypes.windll.kernel32
+    snap = k.CreateToolhelp32Snapshot(0x2, 0)   # TH32CS_SNAPPROCESS
+    if snap in (-1, 0xFFFFFFFFFFFFFFFF):
+        return
+    try:
+        pe = _PE32(); pe.dwSize = ctypes.sizeof(_PE32)
+        ok = k.Process32First(snap, ctypes.byref(pe))
+        while ok:
+            yield pe.th32ProcessID, pe.szExeFile.decode("latin1", "ignore")
+            ok = k.Process32Next(snap, ctypes.byref(pe))
+    finally:
+        k.CloseHandle(snap)
+
+
+def _proc_path(pid):
+    k = ctypes.windll.kernel32
+    h = k.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return ""
+    try:
+        buf = ctypes.create_unicode_buffer(32768)
+        sz = wintypes.DWORD(len(buf))
+        if k.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(sz)):
+            return buf.value
+        return ""
+    finally:
+        k.CloseHandle(h)
+
+
 def _host_pid():
-    import subprocess
-    out = subprocess.run(["wmic", "process", "where", "name='Cemu_release.exe'",
-                          "get", "ProcessId,ExecutablePath"], capture_output=True, text=True).stdout
-    for line in out.splitlines():
-        if HOST_HINT in line.lower():
-            for t in line.split()[::-1]:
-                if t.isdigit():
-                    return int(t)
-    return None
+    """PID of the host Cemu. CEMU_PID wins; else the (hint-matched) Cemu_release.exe/Cemu.exe."""
+    if os.environ.get("CEMU_PID"):
+        try:
+            return int(os.environ["CEMU_PID"])
+        except ValueError:
+            pass
+    cands = [pid for pid, name in _iter_procs()
+             if name.lower() in ("cemu_release.exe", "cemu.exe")]
+    if not cands:
+        return None
+    if HOST_HINT:
+        for pid in cands:
+            if HOST_HINT in _proc_path(pid).lower():
+                return pid
+    return cands[0]
+
+
+class _CemuMem:
+    """Minimal guest<->host reader/writer for one Cemu process (no numpy, small ops only)."""
+
+    def __init__(self, pid):
+        import pymem
+        self.pm = pymem.Pymem()
+        self.pm.open_process_from_id(pid)
+        self.base = self._find_region()
+
+    def _find_region(self):
+        h = self.pm.process_handle
+        vq = ctypes.windll.kernel32.VirtualQueryEx
+        vq.restype = ctypes.c_ulonglong
+        vq.argtypes = [wintypes.HANDLE, ctypes.c_ulonglong, ctypes.POINTER(_MBI), ctypes.c_ulonglong]
+        addr = 0
+        best = None
+        while addr < 0x7FFFFFFFFFFF:
+            mbi = _MBI()
+            if not vq(h, addr, ctypes.byref(mbi), ctypes.sizeof(mbi)):
+                break
+            if (mbi.State == _MEM_COMMIT and (mbi.Protect & 0xFF) in _READABLE
+                    and mbi.RegionSize > (256 << 20)):
+                try:
+                    if self.pm.read_bytes(mbi.BaseAddress, 8) == ENTRY_SIG:
+                        return mbi.BaseAddress
+                except Exception:
+                    pass
+                if best is None or mbi.RegionSize > best[1]:
+                    best = (mbi.BaseAddress, mbi.RegionSize)
+            addr = mbi.BaseAddress + mbi.RegionSize if mbi.RegionSize else addr + 0x1000
+        if best is None:
+            raise RuntimeError("could not locate Cemu guest region (entry sig not found)")
+        return best[0]
+
+    def read(self, guest, length):
+        return self.pm.read_bytes(self.base + (guest - GUEST_BASE), length)
+
+    def write(self, guest, data):
+        self.pm.write_bytes(self.base + (guest - GUEST_BASE), data, len(data))
+        return len(data)
 
 
 def free_guest_slot(nex_pid):
@@ -64,19 +182,14 @@ def free_guest_slot(nex_pid):
     Synchronous + pymem-based; call via asyncio.to_thread so it never blocks the event loop."""
     if not ENABLED:
         return "disabled"
+    pid = _host_pid()
+    if pid is None:
+        return "no host Cemu process found (Cemu_release.exe / Cemu.exe)"
     try:
-        import sys
-        sys.path.insert(0, r"E:\cemu_re_mcp\src")
-        import pymem
-        from cemu_re_mcp.pymem_backend import PymemBridge
-    except Exception as e:  # pragma: no cover
-        return f"pymem unavailable ({e})"
+        br = _CemuMem(pid)
+    except Exception as e:  # pragma: no cover  (pymem missing or region not found)
+        return f"cemu mem unavailable ({e})"
     try:
-        pid = _host_pid()
-        if pid is None:
-            return f"no host Cemu (hint={HOST_HINT})"
-        br = PymemBridge(); pm = pymem.Pymem(); pm.open_process_from_id(pid); br.pm = pm
-        base, size = br._find_region(); br.host_region, br.region_size = base, size
         nexb = _be(br.read(0x102f95d0, 4)); cnx = nexb + 0x16378
         roster = _be(br.read(cnx + O_ROSTER, 4))
         used_p = _be(br.read(cnx + O_USED, 4))

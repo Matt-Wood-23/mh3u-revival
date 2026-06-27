@@ -49,6 +49,8 @@ STEPS
        put the dump's "code", "content", "meta" folders inside
            portable\mlc01\usr\title\00050000\10118300\
        (and the update's into ...\0005000e\10118300\ if you have it).
+       (10118300 is the US title id. EU/PAL game = 10117200, JP = 1014F100 - use
+       YOUR game's id in both the title path here and the save path below.)
 
    NOTE: the launcher may print "No MH3U game found" - it only checks the copy-in
    location (b). If you used a Game Path (a) and Cemu lists the game, ignore that line.
@@ -58,8 +60,8 @@ STEPS
    creates the save folder, then CLOSE it and copy your existing save's contents into:
        portable\mlc01\usr\save\00050000\10118300\user\80000001\
    (That "user\80000001" folder won't exist until that first launch.) Prefer a clean
-   start? Just play - a new hunter is made automatically. NOTE: the save's region must
-   match the game's region (see the Network-Mode crash note below).
+   start? Just play - a new hunter is made automatically. NOTE: use a save made for
+   YOUR game's own region (a US save on the US game, EU on EU).
 
 4. Double-click "PLAY MH3U ONLINE.bat".
    The FIRST time, it:
@@ -106,9 +108,11 @@ TROUBLESHOOTING
   linked to a NNID or PNID", your account is a blank offline one (Cemu made it before you
   ran the launcher) - CLOSE Cemu and run "PLAY MH3U ONLINE.bat" again; it swaps in a valid
   online identity and the check goes green.
-- Game crashes entering Network Mode = an EU/JP save on a US game (or vice-versa).
-  The save's region/language files (system + phraseX) must match the game's region.
-  Make a fresh character in the matching region, or match the save region.
+- Game crashes entering Network Mode on an EU/PAL game = the known EUR-build bug, and
+  THIS bundle already fixes it (the included Cemu + the host's server handle it). Still
+  crashing? You're on an older bundle/Cemu - re-download the current one. (Separately, an
+  EU/JP save on a US game or vice-versa can misbehave - use a save made for your game's
+  own region.)
 - Windows blocked Cemu_release.exe? See "HEADS UP" above - "More info" -> "Run anyway".
 - Do NOT run "Launch with GDB stub" - just use the .bat / Cemu_release.exe.
 - Portable: all data lives in "portable". Delete the folder to remove everything.

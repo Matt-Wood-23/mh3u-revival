@@ -9,7 +9,7 @@ the to-do list for which handlers to implement next (Phase 2).
 import logging
 import time
 
-from nintendo.nex import secure, matchmaking, rmc, common, datastore, nattraversal, streams, notification
+from nintendo.nex import secure, matchmaking, rmc, common, datastore, nattraversal, streams, notification, messaging
 
 import asyncio
 
@@ -549,6 +549,77 @@ class MatchmakeExtensionServer(_Trace, matchmaking_handlers.MatchmakeExtensionSe
     LABEL = "MatchmakeExtension"
 
 
+def _shout_text(raw):
+    """Best-effort: pull the readable tab-delimited payload (...\\t<shout text>) for logging.
+    MH3U packs the shout plus context (lobby, room name, account id, name, lang, ...) as a
+    tab-separated string inside the message body; the last field is the typed/quick-chat text."""
+    try:
+        import re
+        runs = re.findall(r"[\x20-\x7e\t]{4,}", raw.decode("latin-1", "replace"))
+        body = max((r for r in runs if "\t" in r), key=len, default="")
+        return body.replace("\t", " | ") if body else (max(runs, key=len, default="") if runs else "")
+    except Exception:
+        return ""
+
+
+def _shout_targets(sender):
+    """Live pids to deliver a shout to: everyone who shares a gathering (room session or
+    hall/lobby community) with the sender, minus the sender. MH3U's UserMessage layout does
+    NOT match NintendoClients' (the decoded recipient comes out garbage), so we route by the
+    SENDER's memberships, not the message's recipient field. Fallback (beta = one hall/room
+    per server): every other connected client."""
+    live = set(matchmaking_handlers.CLIENTS.keys())
+    pids = set()
+    try:
+        for s in matchmaking_handlers.REGISTRY.sessions.values():
+            if sender in s.participants:
+                pids |= set(s.participants)
+        for c in matchmaking_handlers.COMMUNITY.communities.values():
+            if sender in getattr(c, "participants", ()):
+                pids |= set(c.participants)
+    except Exception as e:
+        logger.info("  -> SHOUT target-resolve error: %s", e)
+    pids &= live
+    pids.discard(sender)
+    if not pids:                       # not co-located in a tracked gathering -> broadcast
+        pids = live - {sender}
+    return pids
+
+
+class MessageDeliveryServer(_Trace, messaging.MessageDeliveryServer):
+    """MH3U gathering-hall / room shoutouts ("quick chats"). The game sends each shout as
+    MessageDelivery.DeliverMessage (proto 0x1B m1, fire-and-forget) and only DISPLAYS a
+    shout when it RECEIVES one back from the network. We returned NotImplemented, so shouts
+    vanished for everyone (the in-game "multiple shoutouts" warning is a client-side throttle,
+    unrelated). Fix: relay each shout to the other participants of its recipient gathering.
+
+    We forward the original anydata bytes VERBATIM (no decode/re-encode) so any MH3U-vs-
+    NintendoClients UserMessage layout drift can't corrupt the relayed message; the decode is
+    best-effort, only for routing + logging."""
+    LABEL = "MessageDelivery"
+
+    async def handle_deliver_message(self, client, input, output):
+        sender = _pid(client)
+        raw = input.get()                      # exact request body (anydata message) -- forwarded verbatim
+        logger.info("SHOUT pid=%s raw=%dB text=%r", sender, len(raw), _shout_text(raw))
+
+        relayed = 0
+        for pid in _shout_targets(sender):
+            conn = matchmaking_handlers.CLIENTS.get(pid)
+            if conn is None:
+                continue
+            try:
+                await conn.request(
+                    messaging.MessageDeliveryProtocol.PROTOCOL_ID,
+                    messaging.MessageDeliveryProtocol.METHOD_DELIVER_MESSAGE,
+                    raw, noresponse=True)
+                relayed += 1
+            except Exception as e:
+                logger.info("  -> SHOUT relay to pid=%s failed: %s", pid, e)
+        logger.info("  -> SHOUT relayed to %d participant(s)", relayed)
+        # DeliverMessage is fire-and-forget: no response body.
+
+
 def secure_servers():
     """Protocol handlers hosted on the secure server. Add NAT/health/etc. as the
     live trace reveals MH3U needs them."""
@@ -559,4 +630,5 @@ def secure_servers():
         NATTraversalServer(),
         DataStoreServer(),
         MatchmakeExtensionServer(),
+        MessageDeliveryServer(),
     ]

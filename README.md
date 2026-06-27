@@ -44,12 +44,14 @@ If you represent a rights-holder with a concern, please open an issue.
 - ✅ **Zero-setup joining:** a ready-to-run bundle with online **pre-enabled** — bring your
   own dump, double-click the launcher, play. No Cemu account/settings fiddling, no Python.
 
-**Game version:** only the **US** version of MH3U has been tested end-to-end so far. The patched
-Cemu now also redirects the **EU** and **JP** versions, but those are **unverified** — if you run
-EU/JP and it connects (or doesn't), please [report back](#reporting-bugs).
+**Game version:** the **US** and **EU/PAL** versions are both tested end-to-end — including a
+verified **cross-region EU + US room** (an EU player and a US player hunting together). An
+EUR-build crash on entering Network Mode is fixed in the current Cemu + server, so EU/PAL
+players are good to go. The **JP** version is also redirected by the patched Cemu but is still
+**unverified** — if you run JP and it connects (or doesn't), please [report back](#reporting-bugs).
 
-**Still being tested (don't expect polish yet):** raw bare-internet hole-punch, and EU/JP game
-versions. This is a **beta** — it's scoped to **4 players (one room) per server** on purpose,
+**Still being tested (don't expect polish yet):** raw bare-internet hole-punch, and the JP game
+version. This is a **beta** — it's scoped to **4 players (one room) per server** on purpose,
 because that's the configuration that's been hardened.
 
 ---

@@ -580,31 +580,59 @@ def _shout_targets(sender):
     except Exception as e:
         logger.info("  -> SHOUT target-resolve error: %s", e)
     pids &= live
-    pids.discard(sender)
-    if not pids:                       # not co-located in a tracked gathering -> broadcast
-        pids = live - {sender}
+    if not pids:                       # sender not in a tracked gathering -> broadcast to all
+        pids = set(live)
+    # KEEP the sender in the target set (do NOT discard it). MH3U displays a shout only when
+    # it RECEIVES one over the network (no local echo), so the server must echo each shout
+    # back to the sender too. Without that echo the sender never sees their own message AND
+    # -- observed live 2026-06-30 -- the client's shout send-gate never clears, blocking every
+    # shout after the first (2nd+ shout never even reaches the compose/send buffer). Echoing
+    # to the sender can't loop: receiving a DeliverMessage only displays, it never re-sends.
     return pids
 
 
 class MessageDeliveryServer(_Trace, messaging.MessageDeliveryServer):
     """MH3U gathering-hall / room shoutouts ("quick chats"). The game sends each shout as
-    MessageDelivery.DeliverMessage (proto 0x1B m1, fire-and-forget) and only DISPLAYS a
-    shout when it RECEIVES one back from the network. We returned NotImplemented, so shouts
-    vanished for everyone (the in-game "multiple shoutouts" warning is a client-side throttle,
-    unrelated). Fix: relay each shout to the other participants of its recipient gathering.
+    MessageDelivery.DeliverMessage (proto 0x1B m1) and only DISPLAYS a shout when it RECEIVES
+    one back from the network. Two independent things had to be fixed for shouts to work:
+      1. RELAY each shout to the gathering's participants -- including the SENDER, so it sees
+         its own message (no local echo). See _shout_targets().
+      2. REPLY to the shout's RMC call. The client WAITS for that reply before re-arming its
+         chat send-gate; without it only the first shout per login goes out. See __init__ /
+         NORESPONSE (confirmed live 2026-06-30). NOT fire-and-forget, despite the lib default.
+    (The in-game "too many shoutouts" warning is a separate client-side spam throttle.)
 
     We forward the original anydata bytes VERBATIM (no decode/re-encode) so any MH3U-vs-
     NintendoClients UserMessage layout drift can't corrupt the relayed message; the decode is
     best-effort, only for routing + logging."""
     LABEL = "MessageDelivery"
 
+    def __init__(self):
+        super().__init__()
+        # CONFIRMED FIX 2026-06-30 (live, 2 players): MH3U's shout send-gate stayed shut after
+        # the FIRST shout of each NEX login -- 2nd+ shout never even left the client, reset only
+        # on reconnect, never on time. Cause: MH3U's client WAITS for an RMC reply to its
+        # DeliverMessage (0x1B m1) before re-arming the chat. NintendoClients marks that protocol
+        # NORESPONSE=True (fire-and-forget), so rmc.handle_request relayed the shout then returned
+        # WITHOUT replying (proto=27 never appeared in the [RMC] response log). The client sat
+        # forever awaiting that ack -> gate locked. Sending ANY success reply re-arms it: matt
+        # spammed 10 shouts/login once we replied (was hard-capped at 1). An EMPTY success body
+        # is sufficient -- no structured payload needed. The earlier _shout_targets self-echo fix
+        # is still required too (it's what makes the SENDER display its own shout); this reply
+        # fix is what makes the gate re-open. MH3U_SHOUT_REPLY: "empty"=empty success (default,
+        # the confirmed fix), "struct"=Messaging(0x17)-shaped body (untested fallback),
+        # "0"/"none"=old fire-and-forget no-reply (reproduces the bug; for A/B only).
+        self._reply_mode = os.environ.get("MH3U_SHOUT_REPLY", "empty").lower()
+        self.NORESPONSE = self._reply_mode in ("0", "", "none", "no", "off")
+
     async def handle_deliver_message(self, client, input, output):
         sender = _pid(client)
         raw = input.get()                      # exact request body (anydata message) -- forwarded verbatim
         logger.info("SHOUT pid=%s raw=%dB text=%r", sender, len(raw), _shout_text(raw))
 
+        targets = _shout_targets(sender)
         relayed = 0
-        for pid in _shout_targets(sender):
+        for pid in targets:
             conn = matchmaking_handlers.CLIENTS.get(pid)
             if conn is None:
                 continue
@@ -616,8 +644,16 @@ class MessageDeliveryServer(_Trace, messaging.MessageDeliveryServer):
                 relayed += 1
             except Exception as e:
                 logger.info("  -> SHOUT relay to pid=%s failed: %s", pid, e)
-        logger.info("  -> SHOUT relayed to %d participant(s)", relayed)
-        # DeliverMessage is fire-and-forget: no response body.
+        logger.info("  -> SHOUT relayed to %d participant(s) [reply_mode=%s]", relayed, self._reply_mode)
+
+        # Optional RMC reply to the sender's own DeliverMessage (see __init__). With NORESPONSE
+        # False, rmc.handle_request sends a success response carrying whatever we write here;
+        # "empty" writes nothing -> an empty-body success (most likely just needs the call to
+        # complete). "struct" mirrors the 0x17 response shape as a fallback if empty isn't enough.
+        if self._reply_mode == "struct":
+            output.anydata(raw)                       # modified_message (echo verbatim)
+            output.list([], output.u32)               # sandbox_node_ids
+            output.list([p for p in sorted(targets) if p != sender], output.pid)  # participants
 
 
 def secure_servers():

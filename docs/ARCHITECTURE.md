@@ -170,8 +170,8 @@ we recommend them:
 | Model | How | Exposes host IP? | CGNAT-proof? | Notes |
 |---|---|---|---|---|
 | **Overlay VPN** (Tailscale) | both ends join a private overlay; host advertises its `100.x` overlay IP | No | Yes | **Recommended.** Private, invite-only, no router config. Only the host organizes the tailnet; joiners just install the client + join it. |
-| **Port-forward** | host forwards UDP 1223+1224, shares public IP | Yes | No | Power-user alternative, **untested so far (provisional)**. Dies behind CGNAT. |
-| **Raw NAT hole-punch** | rely on NEX NATTraversal between two home routers, no overlay | minimal | partial | Best-effort. Works for cone NATs, fails for symmetric/CGNAT. **(provisional)** — only ever proven *inside* Tailscale (which already flattens NAT); never tested on the bare internet. |
+| **Public path** (port-forward / DMZ / passthrough) | host opens UDP 1223+1224 (or DMZ/passthroughs the PC), shares public IP | Yes | joiners yes, host no | **Proven live 2026-07** (DMZ/passthrough form): real session incl. a cellular-CGNAT joiner, no overlay. Host's line must have a real public IPv4. Guide: [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md). |
+| **Raw NAT hole-punch** | rely on NEX NATTraversal between two home routers, no overlay | minimal | partial | Best-effort. The reachable-host topology (NAT'd joiner → open host) is **proven on the bare internet** (2026-07, part of the public path above). NAT'd-peer ↔ NAT'd-peer (a joiner-hosted room) remains **(provisional)** — only ever proven *inside* Tailscale, which already flattens NAT. |
 
 The overlay is the **guaranteed fallback**: hole-punch alone can't connect symmetric-NAT
 / CGNAT players, so an overlay (or a future relay) is required for universal
@@ -208,10 +208,14 @@ explicitly **out of scope** (it's what projects like Pretendo do). Instead:
 **Tested:** identity generation (format + uniqueness + idempotency); a launcher-generated
 random-PID account loaded by Cemu online end-to-end (a remote friend's bundle, in a real
 session); clean leave/rejoin and hard-drop rejoin (self-healing); reaper on a true abrupt
-close; four players P2P over an overlay (Tailscale), cross-machine.
+close; four players P2P over an overlay (Tailscale), cross-machine; **public-internet
+hosting with no overlay** — a 2-player session against the host's bare public IP,
+including a cellular-CGNAT joiner P2P-connecting into the host's room
+(see [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md)).
 
-**Not yet tested (provisional):** raw bare-internet hole-punch (only ever proven *inside*
-Tailscale, which already flattens NAT); port-forwarded hosting over the open internet.
+**Not yet tested (provisional):** NAT'd-peer ↔ NAT'd-peer hole-punch on the bare internet
+(a *joiner-hosted* room; the reachable-host direction is proven); the per-port-forward
+variant of the public path (proven in its DMZ/passthrough form).
 
 **Roadmap:** masked overlay (a join-code launcher that hides Tailscale setup); a relay
 fallback for symmetric/CGNAT pairs; larger-capacity / community-hub hosting (under

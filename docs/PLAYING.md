@@ -118,6 +118,36 @@ this for you, but a hand setup doesn't). The online-requirements check should be
 play (step 6). `make_account.py` already wrote a valid identity, so if it isn't green, you ran it
 against the wrong `act/80000001` folder.
 
+## Linux / Steam Deck (experimental)
+
+A community-built **Linux bundle** exists — `MH3U_Online_Linux.zip` on the
+[Releases](https://github.com/Matt-Wood-23/mh3u-revival/releases) page, contributed by
+**jM5557**. It's the same patched Cemu fork built as a Linux **AppImage**, with
+`SETUP-ONLINE.sh` replacing `PLAY MH3U ONLINE.bat` (same identity minting, same host-IP
+prompt) and the same pre-configured `portable/` folder. Works on x86-64 Linux and
+**SteamOS / Steam Deck**.
+
+1. Unzip, then add your dump exactly as in step 3 above (same folder layout, forward
+   slashes).
+2. First run, from a terminal in the bundle folder:
+   ```bash
+   chmod +x SETUP-ONLINE.sh
+   ./SETUP-ONLINE.sh
+   ```
+   It mints your identity, asks for the host's IP, and launches Cemu.
+3. Later runs: `./SETUP-ONLINE.sh` again, or just run `Cemu.AppImage` directly — on a
+   Steam Deck you can add it to Steam as a **Non-Steam Game**.
+
+Everything else on this page (dump layout, saves, troubleshooting, the
+`portable/mh3u_server.txt` IP file) applies unchanged.
+
+**Experimental status:** proven by the contributor on SteamOS and Arch via **LAN** play.
+Tailscale (available on Linux) and the public-IP path haven't been tested from a Linux
+joiner yet but are transport-level — expected to work; please report either way. The zip's
+`BUILD.txt` documents the full reproducible build against the
+[Cemu fork](https://github.com/Matt-Wood-23/Cemu/tree/mh3u-revival) if you'd rather build
+the AppImage yourself.
+
 ---
 
 No Nintendo files are involved: the online "certs" are 4-byte empty stubs and otp/seeprom

@@ -100,11 +100,13 @@ MH3U_ADVERTISE=<your-reachable-ip> python server.py
 | Players are… | Do this | `<reachable-ip>` |
 |---|---|---|
 | **over an overlay (recommended)** | you + friends join a Tailscale network | your Tailscale `100.x` IP |
+| anywhere, no VPN | open the public path — see [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md) | your public IP (`curl ifconfig.me`) |
 | on your LAN | nothing | your LAN IP (e.g. `192.168.1.50`) |
 
-> Hosting over the bare internet by port-forwarding UDP 1223+1224 *should* work but is
-> **untested so far** — and it exposes your IP and dies behind CGNAT. It's a power-user path,
-> not the supported beta route. See [ARCHITECTURE.md §5](ARCHITECTURE.md#5-reachability--networking).
+> **Public-internet hosting is proven** (a real session, including a joiner behind cellular
+> CGNAT) but it's the power-user path: it exposes your IP, needs router admin access and a
+> real public IPv4 on your line, and has firewall gotchas that silently break it. Friends
+> need zero extra setup — even behind CGNAT. Full guide: [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md).
 
 **Overlay (the recommended path) — using Tailscale (the proven path):**
 1. Install [Tailscale](https://tailscale.com/download) and sign in (free). Only *you* organize

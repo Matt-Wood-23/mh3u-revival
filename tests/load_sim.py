@@ -40,6 +40,15 @@ import sys
 # test, so disable the pymem roster-poke -> every join/leave stays pure in-memory.
 os.environ.setdefault("MH3U_HOST_FREE", "0")
 os.environ.setdefault("MH3U_BIND", "127.0.0.1")   # inproc server binds loopback
+# The abuse/DoS guardrails (limits.py) ship with beta-safe caps; a stress run deliberately
+# exceeds normal use, so raise them here (before limits.py is imported) so a legit thunder
+# scenario isn't cap-limited. All clients come from loopback, which is per-IP-exempt anyway.
+os.environ.setdefault("MH3U_MAX_CONNECTIONS", "100000")
+os.environ.setdefault("MH3U_MAX_ROOMS", "100000")
+os.environ.setdefault("MH3U_MAX_ROOM_PARTICIPANTS", "100000")
+os.environ.setdefault("MH3U_MAX_RUNTIME_COMMUNITIES", "100000")
+os.environ.setdefault("MH3U_MAX_COMMUNITIES_PER_OWNER", "100000")
+os.environ.setdefault("MH3U_SHOUTS_PER_SEC", "100000")
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)  # mh3u_server/ (tests live one level down)

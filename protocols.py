@@ -16,6 +16,7 @@ import asyncio
 import config
 import matchmaking_handlers
 import host_roster_free
+import limits
 
 logger = logging.getLogger("mh3u.proto")
 
@@ -230,18 +231,43 @@ class SecureConnectionServer(_Trace, secure.SecureConnectionServer):
         # connection's own later logout takes the stale-path (CLIENTS.get(pid) is not it)
         # and won't clobber this live one.
         pid = _pid(client)
+        # Connection caps keyed on SOURCE IP (PIDs are attacker-chosen). A reconnect (pid
+        # already present) is never blocked; a new PID is rejected when the server is full.
+        # Loopback (the co-located host) is exempt from the per-IP cap.
+        ip = limits.remote_ip(client)
+        is_new_pid = pid not in matchmaking_handlers.CLIENTS
+        ok, reason = limits.global_connection_ok(is_new_pid, len(matchmaking_handlers.CLIENTS))
+        if not ok:
+            logger.warning("register: REJECT pid=%s ip=%s -> %s", pid, ip, reason)
+            raise common.RMCError("RendezVous::MaxConnectionsReached")
+        ok, reason = limits.ip_can_connect(ip)
+        if not ok:
+            logger.warning("register: REJECT pid=%s -> %s", pid, reason)
+            raise common.RMCError("RendezVous::MaxConnectionsReached")
+
         prev = matchmaking_handlers.CLIENTS.get(pid)
         if prev is not None and prev is not client:
             idle = _conn_idle(prev)
             idle_s = ("%.0fs" % idle) if idle is not None else "unknown"
+            prev_ip = getattr(prev, "_mh3u_ip", None)
+            # Same IP = ordinary reconnect; a DIFFERENT IP claiming a live PID is the
+            # impersonation shape (or a real collision) — flag it loud.
+            same_ip = (prev_ip is not None and ip is not None and prev_ip == ip)
             logger.warning(
-                "register: pid=%s already held by another connection (last-rx idle=%s) -> "
-                "treating NEW connection as authoritative. Expected for a reconnect; if you "
-                "see this for two DIFFERENT players at once, their PIDs COLLIDED -- have the "
-                "newer player re-run make_account.py for a fresh PID.", pid, idle_s)
+                "register: pid=%s already held by another connection (last-rx idle=%s, "
+                "incumbent ip=%s, new ip=%s, same_ip=%s) -> treating NEW connection as "
+                "authoritative. Expected for a reconnect (same IP); a DIFFERENT IP here means "
+                "two players' PIDs COLLIDED or a PID is being impersonated -- have the newer "
+                "player re-run make_account.py for a fresh PID.", pid, idle_s, prev_ip, ip, same_ip)
             prev_cid = getattr(prev, "_mh3u_cid", None)
             if prev_cid is not None and matchmaking_handlers.CID_TO_PID.get(prev_cid) == pid:
                 matchmaking_handlers.CID_TO_PID.pop(prev_cid, None)
+
+        # Count this connection against its source IP exactly once (decremented in logout).
+        if not getattr(client, "_mh3u_ip_counted", False):
+            client._mh3u_ip = ip
+            client._mh3u_ip_counted = True
+            limits.ip_add(ip)
         self._next_cid += 1
         cid = self._next_cid
         # Stamp the cid on the connection so logout() can clean up exactly this
@@ -283,6 +309,11 @@ class SecureConnectionServer(_Trace, secure.SecureConnectionServer):
         cid = getattr(client, "_mh3u_cid", None)
         mh = matchmaking_handlers
 
+        # Release this connection's per-IP slot (guarded to run once).
+        if getattr(client, "_mh3u_ip_counted", False):
+            limits.ip_remove(getattr(client, "_mh3u_ip", None))
+            client._mh3u_ip_counted = False
+
         # Always drop this exact connection's cid->pid mapping (unique to it).
         if cid is not None and mh.CID_TO_PID.get(cid) == pid:
             mh.CID_TO_PID.pop(cid, None)
@@ -295,8 +326,12 @@ class SecureConnectionServer(_Trace, secure.SecureConnectionServer):
             affected = mh.REGISTRY.leave(pid)
             pretty = [(a, hex(g), r) for (a, g, r) in affected]
             halls = mh.COMMUNITY.leave_all(pid)
-            logger.info("LOGOUT pid=%s cid=%s -> cleaned up; rooms affected=%s; halls left=%s",
-                        pid, cid, pretty, [hex(g) for g in halls])
+            # Destroy runtime communities this pid owned + drop its rate-limit state.
+            reaped = mh.COMMUNITY.reap_owner(pid)
+            limits.forget_pid(pid)
+            logger.info("LOGOUT pid=%s cid=%s -> cleaned up; rooms affected=%s; halls left=%s%s",
+                        pid, cid, pretty, [hex(g) for g in halls],
+                        ("; runtime-communities destroyed=%s" % [hex(g) for g in reaped]) if reaped else "")
         else:
             logger.info("LOGOUT pid=%s cid=%s -> stale connection (a newer one is active); "
                         "retired cid only, left live state intact", pid, cid)
@@ -349,16 +384,28 @@ class MatchMakingServer(_Trace, matchmaking.MatchMakingServer):
         # client treats it as fatal and shows "disconnecting" (seen 2026-06-19: host-leave
         # errored while guest-leave was clean). Destroy the room + ack True so the host
         # returns to the lobby cleanly and the room drops out of browse.
-        existed = matchmaking_handlers.REGISTRY.destroy(gid)
-        logger.info("unregister_gathering: gid=0x%x (pid=%s) -> %s",
-                    gid, _pid(client), "destroyed" if existed else "not found")
-        return True
+        pid = _pid(client)
+        status = matchmaking_handlers.REGISTRY.destroy(gid, owner_pid=pid)
+        if status == "denied":
+            logger.warning("unregister_gathering: DENY gid=0x%x (pid=%s not the room host)", gid, pid)
+        else:
+            logger.info("unregister_gathering: gid=0x%x (pid=%s) -> %s", gid, pid, status)
+        return True   # always ack (an error here makes the host client show 'disconnecting')
 
     async def unregister_gatherings(self, client, gids):
-        # Plural variant (same NotImplemented trap); destroy each + ack True.
-        gone = [hex(g) for g in gids if matchmaking_handlers.REGISTRY.destroy(g)]
-        logger.info("unregister_gatherings: gids=%s (pid=%s) -> destroyed %s",
-                    [hex(g) for g in gids], _pid(client), gone)
+        # Plural variant (same NotImplemented trap); destroy each own room + ack True.
+        pid = _pid(client)
+        gids = limits.bound_list(gids)
+        gone, denied = [], 0
+        for g in gids:
+            status = matchmaking_handlers.REGISTRY.destroy(g, owner_pid=pid)
+            if status == "destroyed":
+                gone.append(hex(g))
+            elif status == "denied":
+                denied += 1
+        logger.info("unregister_gatherings: gids=%s (pid=%s) -> destroyed %s%s",
+                    [hex(g) for g in gids], pid, gone,
+                    ("; DENIED %d (not host)" % denied) if denied else "")
         return True
 
     # --- room state + P2P address (the joiner's path) -----------------------
@@ -511,11 +558,26 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
         # InitiateProbe to every target's connection so the host fires a probe packet back at
         # the joiner -> completes the bidirectional path. Without this, only the joiner sends
         # and the host stays silent -> report_nat_traversal_result(False) (the gate we hit).
+        caller = _pid(client)
         logger.info("request_probe_initiation_ext: targets=%s probe=%s (pid=%s)",
-                    [str(u) for u in target_urls], station_to_probe, _pid(client))
-        for url in target_urls:
+                    [str(u) for u in target_urls], station_to_probe, caller)
+        # The server sends a packet to the target on the caller's behalf, so skip targets that
+        # share no room with the caller. FAIL-OPEN (the hole-punch is critical): if the caller
+        # is in no tracked room yet, `mates` is empty and we allow all.
+        mates = set()
+        try:
+            for s in matchmaking_handlers.REGISTRY.sessions.values():
+                if caller in s.participants:
+                    mates |= set(s.participants)
+        except Exception:
+            mates = set()
+        for url in limits.bound_list(target_urls):
             rvcid = url["RVCID"]
             target_pid = matchmaking_handlers.CID_TO_PID.get(rvcid)
+            if mates and target_pid is not None and target_pid not in mates:
+                logger.warning("  -> DENY probe forward: RVCID=%s pid=%s shares no room with caller pid=%s",
+                               rvcid, target_pid, caller)
+                continue
             target_client = matchmaking_handlers.CLIENTS.get(target_pid)
             if target_client is None:
                 logger.info("  -> no live connection for RVCID=%s (pid=%s); cannot forward probe",
@@ -580,8 +642,11 @@ def _shout_targets(sender):
     except Exception as e:
         logger.info("  -> SHOUT target-resolve error: %s", e)
     pids &= live
-    if not pids:                       # sender not in a tracked gathering -> broadcast to all
-        pids = set(live)
+    if not pids:                       # sender not in a tracked gathering
+        if limits.SHOUT_BROADCAST_FALLBACK:
+            pids = set(live)           # beta default: broadcast to all (keeps shouts working)
+        else:
+            pids = {sender} & live     # hardened: sender-only, no all-players amplification
     # KEEP the sender in the target set (do NOT discard it). MH3U displays a shout only when
     # it RECEIVES one over the network (no local echo), so the server must echo each shout
     # back to the sender too. Without that echo the sender never sees their own message AND
@@ -630,21 +695,28 @@ class MessageDeliveryServer(_Trace, messaging.MessageDeliveryServer):
         raw = input.get()                      # exact request body (anydata message) -- forwarded verbatim
         logger.info("SHOUT pid=%s raw=%dB text=%r", sender, len(raw), _shout_text(raw))
 
-        targets = _shout_targets(sender)
-        relayed = 0
-        for pid in targets:
-            conn = matchmaking_handlers.CLIENTS.get(pid)
-            if conn is None:
-                continue
-            try:
-                await conn.request(
-                    messaging.MessageDeliveryProtocol.PROTOCOL_ID,
-                    messaging.MessageDeliveryProtocol.METHOD_DELIVER_MESSAGE,
-                    raw, noresponse=True)
-                relayed += 1
-            except Exception as e:
-                logger.info("  -> SHOUT relay to pid=%s failed: %s", pid, e)
-        logger.info("  -> SHOUT relayed to %d participant(s) [reply_mode=%s]", relayed, self._reply_mode)
+        # Rate-limit the RELAY only (a modified client can spam DeliverMessage; each fans out
+        # 1->N). Over the bucket we drop the relay but STILL reply below — gating the reply
+        # would re-lock the client's send-gate (the 2026-06-30 bug).
+        targets = set()
+        if limits.shout_allowed(sender):
+            targets = _shout_targets(sender)
+            relayed = 0
+            for pid in targets:
+                conn = matchmaking_handlers.CLIENTS.get(pid)
+                if conn is None:
+                    continue
+                try:
+                    await conn.request(
+                        messaging.MessageDeliveryProtocol.PROTOCOL_ID,
+                        messaging.MessageDeliveryProtocol.METHOD_DELIVER_MESSAGE,
+                        raw, noresponse=True)
+                    relayed += 1
+                except Exception as e:
+                    logger.info("  -> SHOUT relay to pid=%s failed: %s", pid, e)
+            logger.info("  -> SHOUT relayed to %d participant(s) [reply_mode=%s]", relayed, self._reply_mode)
+        else:
+            logger.warning("  -> SHOUT from pid=%s RATE-LIMITED (relay dropped; RMC reply still sent)", sender)
 
         # Optional RMC reply to the sender's own DeliverMessage (see __init__). With NORESPONSE
         # False, rmc.handle_request sends a success response carrying whatever we write here;

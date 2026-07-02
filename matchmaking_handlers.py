@@ -24,6 +24,7 @@ import secrets
 from nintendo.nex import rmc, common, matchmaking
 
 import host_roster_free
+import limits
 
 logger = logging.getLogger("mh3u.matchmaking")
 
@@ -64,6 +65,11 @@ class GatheringRegistry:
         self.sessions = {}                   # gid -> _Session
 
     def create(self, gathering, host_pid):
+        # Global room cap — stops a PID-cycling attacker growing sessions without bound.
+        if len(self.sessions) >= limits.MAX_ROOMS:
+            logger.warning("room cap: %d live rooms >= MAX_ROOMS(%d); rejecting create by pid=%s",
+                           len(self.sessions), limits.MAX_ROOMS, host_pid)
+            raise common.RMCError("RendezVous::LimitExceeded")
         self._next_gid += 1
         gid = self._next_gid
         gathering.id = gid
@@ -96,6 +102,14 @@ class GatheringRegistry:
         s = self.sessions.get(gid)
         if not s:
             raise common.RMCError("RendezVous::SessionVoid")
+        # Fail-safe ceiling only, NOT the game's 4-player max: the real cap is client/P2P, and
+        # rejecting near the operating point would bounce a legit rejoin during the ~45s ghost
+        # window after a peer's Cemu crash (its slot is held until the reaper clears it).
+        if pid not in s.participants and len(s.participants) >= limits.MAX_ROOM_PARTICIPANTS:
+            logger.warning("room ceiling: gid=0x%x has %d participants >= MAX_ROOM_PARTICIPANTS(%d); "
+                           "rejecting join by pid=%s", gid, len(s.participants),
+                           limits.MAX_ROOM_PARTICIPANTS, pid)
+            raise common.RMCError("RendezVous::SessionFull")
         s.participants.add(pid)
         s.gathering.num_participants = len(s.participants)
         return s.key
@@ -139,12 +153,18 @@ class GatheringRegistry:
         s.gathering.num_participants = len(s.participants)
         return ("left", gid, len(s.participants))
 
-    def destroy(self, gid):
-        """Unconditionally remove a room by gid — the room owner's explicit teardown path
-        (MatchMaking.UnregisterGathering, what the HOST sends to close its own room on the
-        way back to the lobby, distinct from a guest's EndParticipation). Returns True if a
-        room was actually removed."""
-        return self.sessions.pop(gid, None) is not None
+    def destroy(self, gid, owner_pid=None):
+        """Remove a room by gid (the host's UnregisterGathering teardown; a guest uses
+        EndParticipation instead). owner_pid gates it to the room's own host — gids are
+        guessable, so this must not let anyone close anyone's room; None = unconditional for
+        internal callers. Returns "destroyed" / "not_found" / "denied"."""
+        s = self.sessions.get(gid)
+        if s is None:
+            return "not_found"
+        if owner_pid is not None and s.host_pid != owner_pid:
+            return "denied"
+        del self.sessions[gid]
+        return "destroyed"
 
     def reap_host(self, pid):
         """Destroy every room `pid` currently hosts. A host runs exactly one room at a
@@ -253,6 +273,10 @@ class CommunityRegistry:
     def __init__(self):
         self._next_gid = 0x2000
         self.communities = {}                # gid -> _Community
+        # gids of client-created communities (the only ones the caps/cleanup touch). Tracked
+        # explicitly, NOT via the `official` flag — pre-seeded LOBBIES are official=False (to
+        # stay out of the hall list) yet must never be reaped.
+        self._runtime_gids = set()
         for i in range(1, NUM_WORLDS + 1):
             gid = 0x100 + i
             # Hall display name. The EUR build (region==4) parses names as a multi-
@@ -295,7 +319,22 @@ class CommunityRegistry:
     def by_participant(self, pid):
         return [c.pg for c in self.communities.values() if pid in c.participants]
 
+    def _runtime(self):
+        return [(gid, self.communities[gid]) for gid in self._runtime_gids if gid in self.communities]
+
     def create(self, pg, owner):
+        # Cap client community creation (global + per-owner): it had no cap and no removal path,
+        # so one client could loop it to exhaust memory. Cleanup is reap_owner() on logout.
+        runtime = self._runtime()
+        if len(runtime) >= limits.MAX_RUNTIME_COMMUNITIES:
+            logger.warning("community cap: %d runtime communities >= MAX_RUNTIME_COMMUNITIES(%d); "
+                           "rejecting create by owner=%s", len(runtime), limits.MAX_RUNTIME_COMMUNITIES, owner)
+            raise common.RMCError("RendezVous::PersistentGatheringCreationMax")
+        mine = sum(1 for _, c in runtime if c.pg.owner == owner)
+        if mine >= limits.MAX_COMMUNITIES_PER_OWNER:
+            logger.warning("community cap: owner=%s already owns %d runtime communities "
+                           ">= per-owner cap(%d); rejecting", owner, mine, limits.MAX_COMMUNITIES_PER_OWNER)
+            raise common.RMCError("RendezVous::PersistentGatheringCreationMax")
         self._next_gid += 1
         gid = self._next_gid
         pg.id = gid
@@ -305,7 +344,19 @@ class CommunityRegistry:
         c.participants.add(owner)
         c.recount()
         self.communities[gid] = c
+        self._runtime_gids.add(gid)
         return gid
+
+    def reap_owner(self, pid):
+        """Destroy client-created communities owned by pid (cleanup on logout/reap); never
+        touches pre-seeded halls or lobbies. Returns the gids removed."""
+        gone = []
+        for gid, c in self._runtime():
+            if c.pg.owner == pid:
+                del self.communities[gid]
+                self._runtime_gids.discard(gid)
+                gone.append(gid)
+        return gone
 
     def leave(self, gid, pid):
         """Drop pid from ONE hall/lobby community and recount its live population (the

@@ -49,8 +49,10 @@ STEPS
        put the dump's "code", "content", "meta" folders inside
            portable\mlc01\usr\title\00050000\10118300\
        (and the update's into ...\0005000e\10118300\ if you have it).
-       (10118300 is the US title id. EU/PAL game = 10117200, JP = 1014F100 - use
-       YOUR game's id in both the title path here and the save path below.)
+       (10118300 is the US title id. EU/PAL game = 10117200, JP "MH3G HD Ver." =
+       10104D00 - use YOUR game's id in both the title path here and the save path
+       below. JP also needs extra system files - see the JP note in TROUBLESHOOTING
+       below.)
 
    NOTE: the launcher may print "No MH3U game found" - it only checks the copy-in
    location (b). If you used a Game Path (a) and Cemu lists the game, ignore that line.
@@ -86,6 +88,15 @@ STEPS
 
 TROUBLESHOOTING
 ---------------
+(Full page with more fixes: https://github.com/Matt-Wood-23/mh3u-revival/blob/main/docs/TROUBLESHOOTING.md)
+
+- You can share the Gathering Hall fine, but joining a ROOM instantly disconnects =
+  the direct player-to-player connection is blocked (halls run on the server; rooms
+  are P2P between your PCs). Almost always Windows Firewall on one of the PCs: check
+  BOTH PCs for Cemu BLOCK rules (Win+R -> wf.msc -> Inbound Rules; a Block rule
+  overrides any Allow rule - delete it), then allow Cemu on BOTH Private and Public
+  profiles (VPN adapters like RadminVPN often count as Public). UPnP/your router is
+  NOT involved when you're on a VPN.
 - Launcher says "No MH3U game found" but Cemu lists the game = you used a Game Path
   (step 3a). That message only checks the copy-in folder; ignore it.
 - Game not in Cemu's list after "Add games directory" = you probably picked a [Game]
@@ -113,6 +124,13 @@ TROUBLESHOOTING
   crashing? You're on an older bundle/Cemu - re-download the current one. (Separately, an
   EU/JP save on a US game or vice-versa can misbehave - use a save made for your game's
   own region.)
+- JP game ("MH3G HD Ver.", title id 10104D00) needs extra system files on ANY Cemu:
+  real snd_user.rpl + snduser2.rpl in portable\cafeLibs\, plus the Japanese system
+  files (fonts) merged into portable\mlc01 (get both via CemuMegaDownloader:
+  https://github.com/Xpl0itU/CemuMegaDownloader). A JP black screen at boot is fixed
+  in THIS bundle's Cemu (older bundles: also copy swkbd.rpl from the JP game's own
+  "code" folder into portable\cafeLibs\). Naming your hunter? The JP keyboard shows
+  on the GAMEPAD screen - hold Tab (or Ctrl+Tab) in Cemu to see it.
 - Windows blocked Cemu_release.exe? See "HEADS UP" above - "More info" -> "Run anyway".
 - Do NOT run "Launch with GDB stub" - just use the .bat / Cemu_release.exe.
 - Portable: all data lives in "portable". Delete the folder to remove everything.

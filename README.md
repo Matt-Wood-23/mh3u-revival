@@ -50,13 +50,14 @@ If you represent a rights-holder with a concern, please open an issue.
 - ✅ **Zero-setup joining:** a ready-to-run bundle with online **pre-enabled** — bring your
   own dump, double-click the launcher, play. No Cemu account/settings fiddling, no Python.
 
-**Game version:** the **US** and **EU/PAL** versions are both tested end-to-end — including a
-verified **cross-region EU + US room** (an EU player and a US player hunting together). An
-EUR-build crash on entering Network Mode is fixed in the current Cemu + server, so EU/PAL
-players are good to go. The **JP** version is also redirected by the patched Cemu but is still
-**unverified** — if you run JP and it connects (or doesn't), please [report back](#reporting-bugs).
+**Game version:** the **US**, **EU/PAL** and **JP** versions are all tested end-to-end —
+including verified **cross-region rooms** (EU + US, and JP + US, hunting together). An
+EUR-build crash on entering Network Mode is fixed since v0.1.4, and a **JP boot hang** (an
+upstream Cemu regression) is fixed in the bundle's Cemu since **v0.1.6**. The JP version
+(*MH3G HD Ver.*) needs a couple of extra system files on any Cemu — see
+[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#jp-version-mh3g-hd-ver--extra-setup).
 
-**Still being tested (don't expect polish yet):** the JP game version; *joiner-hosted* rooms
+**Still being tested (don't expect polish yet):** *joiner-hosted* rooms
 between two NAT'd players on the bare internet (host-hosted rooms are the verified path); the
 Linux bundle beyond LAN play. This is a **beta** — it's scoped to **4 players (one room) per
 server** on purpose, because that's the configuration that's been hardened.
@@ -78,6 +79,7 @@ lines.
 
 - **Hosting a game?** → [docs/HOSTING.md](docs/HOSTING.md)
 - **Joining a friend's game?** → [docs/PLAYING.md](docs/PLAYING.md)
+- **Something not working?** → [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 - **How it works / design decisions** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 > **Tried an earlier build and got stuck on the online checkmark** — greyed-out *Network Service*,

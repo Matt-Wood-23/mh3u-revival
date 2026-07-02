@@ -43,6 +43,11 @@ Nintendo files, and **online is already switched on for you**. You bring only yo
    > The launcher may print **"No MH3U game found"** — it only checks the copy-in location (b).
    > If you used a Game Path (a) and Cemu lists the game, ignore that line.
 
+   > **Not on the US version?** EU/PAL (`10117200`) and JP (`10104D00`, *MH3G HD Ver.*) work
+   > too — use *your* game's title ID in the paths above. The **JP version needs extra system
+   > files** (sound libraries + Japanese fonts) on any Cemu — see
+   > [TROUBLESHOOTING.md](TROUBLESHOOTING.md#jp-version-mh3g-hd-ver--extra-setup).
+
    > **Already have an MH3U save in another Cemu?** This bundle is a *fresh* portable Cemu, so
    > your existing save isn't in it. **Launch the game once first** (step 4) so Cemu creates the
    > save folder, then **close it** and copy your existing save's contents into
@@ -78,6 +83,15 @@ Nintendo files, and **online is already switched on for you**. You bring only yo
    MH3U → Network Mode → enter the **same** Gathering Hall → **Enter a Room** → join theirs.
 
 ## Troubleshooting
+
+More in **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — including the #1 reported issue
+(**halls work but joining a Room disconnects** → Windows Firewall on one of the PCs) and
+the JP version's extra setup.
+
+- **You can share a Gathering Hall, but joining a Room instantly disconnects** = the direct
+  player↔player connection is blocked, almost always Windows Firewall **Block** rules for
+  Cemu on one of the PCs (rooms are P2P; halls aren't). Full fix:
+  [TROUBLESHOOTING.md](TROUBLESHOOTING.md#everything-works--halls-chat-seeing-each-other--but-the-moment-we-join-a-room-it-disconnects).
 - **The host can't see your device on their tailnet** = your Tailscale client is on your *own*
   tailnet. Switch to the host's tailnet, then **log out and back in** on the Tailscale app to
   re-bind your device — accepting the invite alone doesn't do it. Verify with

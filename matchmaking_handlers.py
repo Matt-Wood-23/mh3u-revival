@@ -30,10 +30,13 @@ logger = logging.getLogger("mh3u.matchmaking")
 
 
 async def _prefree_host_slot(pid):
-    """Before admitting a (re)joiner, clear any STALE slot it still occupies in the host Cemu's
-    roster. Covers the hard-drop path (Cemu crash/close sends no EndParticipation, so the leave-time
-    free never fires and the reaper is 120s away) AND is a harmless no-op for a clean first/rejoin
-    (nothing matches the pid). Runs off-thread; fail-safe. See host_roster_free."""
+    """LEGACY (needs MH3U_HOST_FREE=1): before admitting a (re)joiner, poke away any STALE slot
+    it still occupies in the co-located host Cemu's roster. Superseded 2026-07-02 by the
+    participation-ended notification (reaper -> type 3008 -> peers free the slot natively); only
+    still covers a rejoin FASTER than the reaper window (<45s, not achievable through a real
+    Cemu relaunch). Runs off-thread; fail-safe. See host_roster_free."""
+    if not host_roster_free.ENABLED:
+        return
     result = await asyncio.to_thread(host_roster_free.free_guest_slot, pid)
     if "freed" in result:
         logger.info("join: pre-cleared stale host slot for pid=%s -> %s", pid, result)

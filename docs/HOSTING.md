@@ -175,14 +175,16 @@ same hall and enter your room.
 |---|---|---|
 | `MH3U_ADVERTISE` | (none) | reachable IP handed to joiners; substitutes loopback for co-located peers |
 | `MH3U_BIND` | `0.0.0.0` | bind address (set `127.0.0.1` to restrict to local) |
-| `MH3U_HOST_FREE` | `1` | auto-free a departed guest's slot in the **host Cemu's** roster (the rejoin fix). Requires the server to run **on the same machine as the host Cemu**. Set `0` for remote-host deployments. |
-| `MH3U_HOST_HINT` | `e:\cemu-src` | exe-path hint to find the host Cemu process |
+| `MH3U_NOTIFY_ON` | `1` | on room leave/disconnect, notify the remaining players so their game drops the leaver (the rejoin fix — works for any host, local or remote). Leave on. |
+| `MH3U_HOST_FREE` | `0` | legacy fallback for the same fix: poke the departed guest's slot directly in the **host Cemu's** RAM. Only works when the server runs **on the same machine as the host Cemu**; superseded by `MH3U_NOTIFY_ON`. |
+| `MH3U_HOST_HINT` | `e:\cemu-src` | exe-path hint to find the host Cemu process (legacy poke only) |
 | `MH3U_REAP_TIMEOUT` | `45` | seconds of silence before a ghost connection is reaped (`0` disables — use while debugging with a paused Cemu) |
 
-> **Co-location note:** the rejoin auto-fix (`host_roster_free.py`) reaches into the host
-> Cemu's RAM, so it only works when the server and the host's Cemu are on the **same
-> machine** — which is the normal "I host and play" setup. If you run the server on a
-> separate box, set `MH3U_HOST_FREE=0`. See [ARCHITECTURE.md §4](ARCHITECTURE.md#4-the-rejoin-problem-and-its-fix-the-hard-part).
+> **Rejoin fix note:** since 2026-07-02 the leave/rejoin fix is a standard NEX
+> notification pushed by the server, so it works no matter where the room's host is —
+> same PC, another PC, another continent. The old RAM-poke (`host_roster_free.py`,
+> `MH3U_HOST_FREE=1`) remains available as an emergency fallback for co-located hosts.
+> See [ARCHITECTURE.md §4](ARCHITECTURE.md#4-the-rejoin-problem-and-its-fix-the-hard-part).
 
 ## Troubleshooting
 

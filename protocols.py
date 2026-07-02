@@ -43,32 +43,36 @@ import os
 _RAW = os.environ.get("MH3U_RAW") == "1"   # dump raw RMC req/resp bytes when set
 
 
-async def push_participation_left(gid, leaving_pid):
-    """EXPERIMENT (2026-06-19): when a member leaves room `gid`, push a NEX NotificationEvent
-    (protocol 0xE process_notification_event — server->client RMC, same mechanism as the
-    working NATTraversal InitiateProbe forward) to each REMAINING member, so the host purges
-    the leaver's nNetwork roster slot and a later REJOIN is clean (fixes the rejoin-after-leave
-    stall seen 2026-06-19: initial join works, rejoin spins on 'retrieving room info').
+async def push_participation_left(gid, leaving_pid, ntype=3007):
+    """Push a participation-ended NEX NotificationEvent (proto 0xE m1, server->client RMC)
+    to each REMAINING member of room `gid` so their game natively removes the leaver from
+    the CNEXSystem participant roster — the table whose stale slot causes the rejoin
+    stall/drift that host_roster_free.py pokes by hand.
 
-    MH3U's handler (Ghidra FUN_02e4f8a4) switches on type/1000: MAJOR type 4 (4000-4999)
-    latches event.param2 into the net mediator -> nNetwork roster manager. The exact minor type
-    and what param2 must carry are NOT yet known, so this is OFF by default and opt-in:
-      MH3U_NOTIFY_ON=1    enable the experiment (default OFF == proven 0a14ab9 behavior)
-      MH3U_NOTIFY_TYPE    (int, default 4000)
+    Grounding (Ghidra 2026-07-02): the NEX-backend notification dispatcher FUN_030dd51c
+    (NOT the inert game-side handler FUN_02e4f8a4 the 2026-06-19/21 digs probed) switches
+    on type/1000; major 3 subtype 7/8 = "Participation Event[End/Disconnect]: PID=%u" ->
+    FUN_030c8ef8(CNEXSystem, event.param2) = the native roster remove (clears the used-flag
+    +0x30d34, record, membercount, dirty — the same fields host_roster_free writes). So:
+    type=3007 (EndParticipation) / 3008 (Disconnect), param2 = leaver pid. The old
+    experiment pushed type=4000 (the ownership-change branch) and watched the wrong
+    handler, which is why it "delivered cleanly but did nothing".
+
+    Unlike the pymem poke this reaches REMOTE hosts and the other guests of a 3-4 player
+    room (every peer keeps its own roster copy). LIVE-PROVEN 2026-07-02, all three cases
+    with the poke disabled: clean leave/rejoin vs a local host (native free RAM-verified,
+    slot reuse, no drift), clean leave/rejoin vs a REMOTE host, and hard-drop (reaper ->
+    3008 -> native free RAM-verified -> clean rejoin). Default ON:
+      MH3U_NOTIFY_ON=0    disable (fall back to the legacy pymem poke via MH3U_HOST_FREE=1)
+      MH3U_NOTIFY_TYPE    (int, overrides the ntype arg for live hunting)
       MH3U_NOTIFY_PARAM2  (leaver|gid, default leaver)
-
-    STATUS 2026-06-19: push delivers to the host cleanly (no error) but with type=4000 /
-    param2=leaver-pid it does NOT clear the rejoin-after-leave stall. Getting the right
-    type+payload needs live Cemu debugging of the host (breakpoint FUN_02e4f8a4 +
-    roster mgr FUN_02e71ee4, watch what a legit P2P leave writes). See
-    handoffs/2026-06-19_notification_push_RE.md.
     """
-    if os.environ.get("MH3U_NOTIFY_ON") != "1":
+    if os.environ.get("MH3U_NOTIFY_ON", "1") != "1":
         return
     sess = matchmaking_handlers.REGISTRY.sessions.get(gid)
     if not sess:
         return
-    ntype = int(os.environ.get("MH3U_NOTIFY_TYPE", "4000"))
+    ntype = int(os.environ.get("MH3U_NOTIFY_TYPE", ntype))
     param2 = gid if os.environ.get("MH3U_NOTIFY_PARAM2") == "gid" else leaving_pid
     for pid in list(sess.participants):
         if pid == leaving_pid:
@@ -325,6 +329,9 @@ class SecureConnectionServer(_Trace, secure.SecureConnectionServer):
             self.registry.pop(pid, None)
             affected = mh.REGISTRY.leave(pid)
             pretty = [(a, hex(g), r) for (a, g, r) in affected]
+            for a, g, r in affected:
+                if a == "left" and r > 0:
+                    await push_participation_left(g, pid, ntype=3008)
             halls = mh.COMMUNITY.leave_all(pid)
             # Destroy runtime communities this pid owned + drop its rate-limit state.
             reaped = mh.COMMUNITY.reap_owner(pid)
@@ -461,14 +468,15 @@ class MatchMakingServerExt(_Trace, matchmaking.MatchMakingServerExt):
             logger.info("end_participation: ROOM gid=0x%x (pid=%s) -> %s (remaining=%d)",
                         agid, pid, action, remaining)
             if action == "left":
-                # THE FIX (RE'd 2026-06-21): the host has no native room-leave path, so it keeps a
-                # stale participant -> next rejoin drifts/stalls. Mirror the game's own remove
-                # directly in the co-located host Cemu's memory (roster used-flag + station array +
-                # dirty resync). Fail-safe + off-thread so it never blocks/breaks the server.
-                # Live-proven across 3 clean leave/rejoin cycles. See host_roster_free.
-                result = await asyncio.to_thread(host_roster_free.free_guest_slot, pid)
-                logger.info("end_participation: host-free pid=%s -> %s", pid, result)
-                # (legacy NEX-notification experiment retired; handler is inert, field_4 null)
+                # THE FIX: without a leave signal, every remaining peer keeps a stale participant
+                # roster slot -> the leaver's next rejoin drifts/stalls. The type-3007 notification
+                # makes each peer run the game's own native remove (see push_participation_left).
+                await push_participation_left(agid, pid, ntype=3007)
+                # Legacy fallback (MH3U_HOST_FREE=1): poke the co-located host Cemu's memory
+                # directly. Off by default since the notification fix; kept for emergencies.
+                if host_roster_free.ENABLED:
+                    result = await asyncio.to_thread(host_roster_free.free_guest_slot, pid)
+                    logger.info("end_participation: host-free pid=%s -> %s", pid, result)
         elif matchmaking_handlers.COMMUNITY.leave(gid, pid):
             # Backing out of a world/lobby (EndParticipation fires for the world gid 0x10N
             # and its lobby 0x20N) -> drop membership so the Population count on the World/

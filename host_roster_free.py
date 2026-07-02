@@ -24,11 +24,16 @@ the bundled Cemu, not just the dev box. The host Cemu process is found by exe na
 or Cemu.exe); the static guest offsets below are fixed for MH3U US v1.3 (the version this project
 targets) so they carry across installs. Needs `pymem` (bundled into the frozen server.exe).
 
+LEGACY (2026-07-02): superseded by the server-native fix — a NEX NotificationEvent type
+3007/3008 (protocols.push_participation_left) makes every remaining peer run the game's OWN
+roster remove (FUN_030c8ef8), which covers remote hosts and the other guests too. This module
+is now an emergency fallback, DISABLED by default; set MH3U_HOST_FREE=1 to re-enable the
+direct-memory poke (co-located host only).
+
 Fail-safe: any error (no host Cemu, pymem missing, offsets moved) is caught and logged; the server
-keeps running. Enabled by default; set MH3U_HOST_FREE=0 to disable (e.g. remote-host deployments
-where the host Cemu is not on the server machine). If several Cemu processes run on one machine
-(e.g. a dev host+guest pair), set MH3U_HOST_HINT to a substring of the HOST Cemu's exe path to pick
-it; otherwise the first Cemu found is used.
+keeps running. If several Cemu processes run on one machine (e.g. a dev host+guest pair), set
+MH3U_HOST_HINT to a substring of the HOST Cemu's exe path to pick it; otherwise the first Cemu
+found is used.
 """
 import os
 import ctypes
@@ -37,7 +42,7 @@ from ctypes import wintypes
 
 logger = logging.getLogger("mh3u.hostfree")
 
-ENABLED = os.environ.get("MH3U_HOST_FREE", "1") not in ("0", "", "false", "False")
+ENABLED = os.environ.get("MH3U_HOST_FREE", "0") not in ("0", "", "false", "False")
 # Optional exe-path substring to disambiguate when MULTIPLE Cemu processes run (dev only).
 # Empty by default -> a normal host has exactly one Cemu, so no hint is needed.
 HOST_HINT = os.environ.get("MH3U_HOST_HINT", "").lower()

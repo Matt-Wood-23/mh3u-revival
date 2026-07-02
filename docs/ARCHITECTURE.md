@@ -131,27 +131,31 @@ rejoin drifts to a new roster slot (→ eventual out-of-bounds → "retrieving r
 stall) *and* desyncs the roster vs. the station array (→ "host thinks peer is still
 here" → disconnect).
 
-Root cause is in the **host Cemu's memory**, not the server: the CNEXSystem participant
-roster (`cnx+0x30d3c`, 0x70-stride) allocates the first slot whose **used-flag**
-(`cnx+0x30d34`) is 0, so a stale used-flag makes it skip the slot and drift.
+Root cause: every peer keeps a CNEXSystem participant roster (`cnx+0x30d3c`, 0x70-stride)
+that allocates the first slot whose **used-flag** (`cnx+0x30d34`) is 0, and nothing P2P
+ever clears a leaver's slot — on the real servers that was the job of a **server-pushed
+NEX NotificationEvent** our server didn't send.
 
-**Fix — the server mirrors the game's own "remove" across every view the host keeps in
-sync** (`host_roster_free.py`): the roster record, the used-flag (the slot-alloc key),
-the flag2 array, the membercount, the **station array** (`cnx+0x304`, fixes the
-roster/station conn mismatch), and the **dirty flags** (`cnx+0x30d2c |= 0x7`, forces a
-member-list recompute + UI redraw). Live-proven across repeated leave/rejoin cycles with
-the guest pinned to its slot — no drift, no disconnect.
+**Fix — send that notification** (`protocols.push_participation_left`): a NotificationEvent
+(protocol 0xE) with **type 3007 (EndParticipation) / 3008 (Disconnect), param2 = leaver
+PID** to each remaining room member. The game's NEX-backend notification dispatcher
+(`FUN_030dd51c`) routes participation subtype 7/8 to its **native roster remove**
+(`FUN_030c8ef8`): clears the used-flag, the record, decrements membercount, sets the dirty
+flag. Because it's a plain server→client RMC it works for **remote hosts** and fixes the
+*other guests'* roster copies too. Live-proven 2026-07-02: clean leave/rejoin vs local and
+remote hosts, and hard-drop → reaper → 3008, all with zero memory writes.
 
 This is wired in two places:
-- **`end_participation` (clean leave)** → free the slot immediately.
-- **Join-time prefree (hard drop)** → on `JoinMatchmakeSession[Ex]`, pre-clear any stale
-  slot for that PID *before* re-adding. A hard close (Cemu killed) sends no leave packet,
-  so this covers it with no timing race; it's a no-op on a clean join.
+- **`end_participation` (clean leave)** → push type 3007 to the remaining members.
+- **`logout` (hard drop / reaper)** → push type 3008 per affected room. A hard close
+  (Cemu killed) sends no leave packet; the reaper detects the silence (~45–60s) and its
+  cleanup fires the push.
 
-**Important architectural constraint:** `host_roster_free` reaches into the host Cemu's
-RAM (via pymem). It therefore only works when **the server runs on the same machine as
-the host's Cemu** — which is exactly the "I host" model. Set `MH3U_HOST_FREE=0` to
-disable it for any deployment where the host Cemu is *not* co-located with the server.
+**Legacy fallback:** `host_roster_free.py` (+ the join-time prefree) pokes the same fields
+directly in a co-located host Cemu's RAM via pymem — the original fix from before the
+notification path was found. Off by default; `MH3U_HOST_FREE=1` re-enables it. Only
+scenario it still uniquely covers: a rejoin faster than the reaper window (<45s), which a
+real Cemu relaunch can't achieve.
 
 **Population layer — the reaper** (`reaper.py`): a hard drop also leaves the player
 inflating the world/lobby count (PRUDP is UDP; no FIN). The reaper stamps a last-rx time
@@ -230,7 +234,7 @@ investigation — the host explicitly does not run central infra for everyone).
 | `server.py` | entry point; auth (1223) + secure (1224) servers, ticketing |
 | `protocols.py` | secure-server RMC handlers (register, matchmaking, NAT traversal) + the PID guard |
 | `matchmaking_handlers.py` | session/hall/client/station registries + join logic |
-| `host_roster_free.py` | the host-Cemu roster free (the rejoin fix); co-located host only |
+| `host_roster_free.py` | legacy pymem roster poke (pre-notification rejoin fix); off by default, co-located host only |
 | `reaper.py` | liveness reaper (ghost-population cleanup) |
 | `users.py` / `config.py` | PID resolution + kerberos derivation / RE'd credentials |
 | `dist/` | player-distribution: `PLAY MH3U ONLINE.bat` (mints/repairs identity + launches), `make_account.py`, `make_online_files.py`, `bundle_settings.xml` (pre-baked online gate) |

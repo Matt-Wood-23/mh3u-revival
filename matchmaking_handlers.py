@@ -187,15 +187,23 @@ class GatheringRegistry:
 REGISTRY = GatheringRegistry()
 
 
-# Beta is hard-capped at 4 players (one room per server). The hall/lobby LIST screens render the
-# displayed max as (max_participants - offset) (world offset 2, lobby offset 1), so a raw max of
-# 100 showed 98/99 — made it look like a 100-slot server. Tie hall, lobby, and room to this.
-MAX_PLAYERS = 4
+# Two independent caps, decoupled 2026-07-03 (were one overloaded MAX_PLAYERS=4):
+#   ROOM_MAX  — hunters in a single HUNT room. This is the game's own P2P limit (4); it is NOT
+#               raisable server-side (the clients mesh P2P + the quest/slot logic lives in the
+#               game binary), so leave it at 4. Kept a constant so the hall cap can grow alone.
+#   HALL_MAX  — hunters sharing a gathering HALL + its lobby at once, each then forming their own
+#               <=ROOM_MAX room. The hall is server-roster-fed (P2P/hole-punch is room-scoped),
+#               so this IS server-tunable. The hall/lobby LIST screens render the displayed max as
+#               (max_participants - offset) (world offset 2, lobby offset 1); a raw max of 100
+#               rendered as 98/99, so the game validates large halls fine.
+# Both env-tunable; defaults keep hunts at the proven 4 and open halls to 16.
+ROOM_MAX = limits._int_env("MH3U_ROOM_MAX", 4)
+HALL_MAX = limits._int_env("MH3U_HALL_MAX", 16)
 
 # Number of official Worlds (gathering halls) to advertise. Rooms are global (not tied to a
-# hall), so multiple worlds all routed to the same room — pointless for a single-room beta.
-# One world + its one lobby keeps the world-select screen honest. Bump to seed more later.
-NUM_WORLDS = 1
+# hall), so multiple worlds all route to the same global room pool. One world + its one lobby
+# keeps the world-select screen honest for a small server. Bump (MH3U_NUM_WORLDS) to seed more.
+NUM_WORLDS = limits._int_env("MH3U_NUM_WORLDS", 1)
 
 
 def _make_official(gid, name):
@@ -208,7 +216,7 @@ def _make_official(gid, name):
     c.owner = 2                 # SECURE_SERVER_PID — official halls are server-owned
     c.host = 2
     c.min_participants = 1
-    c.max_participants = MAX_PLAYERS + 2     # placeholder; _Community sets the real per-type max
+    c.max_participants = HALL_MAX + 2     # placeholder; _Community sets the real per-type max
     c.participation_policy = 1
     c.policy_argument = 0
     c.flags = 512
@@ -253,9 +261,9 @@ class _Community:
         self.official = official
         self.offset = offset
         pg.num_participants = offset
-        # Display the real beta cap (not 98/99): list screens render max as
-        # (max_participants - offset), so max = MAX_PLAYERS + offset shows /MAX_PLAYERS.
-        pg.max_participants = MAX_PLAYERS + offset
+        # Display the real hall cap (not 98/99): list screens render max as
+        # (max_participants - offset), so max = HALL_MAX + offset shows /HALL_MAX.
+        pg.max_participants = HALL_MAX + offset
 
     def recount(self):
         self.pg.num_participants = len(self.participants) + self.offset
@@ -448,7 +456,7 @@ def _placeholder_session():
     g.owner = 0
     g.host = 0
     g.min_participants = 1
-    g.max_participants = MAX_PLAYERS
+    g.max_participants = ROOM_MAX
     g.participation_policy = 0
     g.policy_argument = 0
     g.flags = 0

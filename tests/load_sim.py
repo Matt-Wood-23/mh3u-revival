@@ -20,7 +20,7 @@ Two modes
 Scenarios (--scenario)
 ----------------------
   rooms    R rooms x P players (default)         -- multi-room at scale
-  fill     ONE room, N joiners past MAX_PLAYERS  -- overflow behaviour
+  fill     ONE room, N joiners past ROOM_MAX    -- overflow behaviour
   churn    repeated leave/reconnect (+rounds)    -- leak / cleanup / PID-guard stress
   thunder  all N connect+login simultaneously    -- herd / auth throughput
 
@@ -320,7 +320,7 @@ async def scenario_rooms(hunters, players, gate, hold):
 
 
 async def scenario_fill(hunters, gate, hold):
-    """ONE room; everyone piles in past MAX_PLAYERS to see how overflow is handled."""
+    """ONE room; everyone piles in past ROOM_MAX to see how overflow is handled."""
     await _bring_online(hunters, gate)
     gid = await hunters[0].host_room()
 
@@ -335,8 +335,8 @@ async def scenario_fill(hunters, gate, hold):
     g = next((x for x in rooms if x.id == gid), None)
     pop = getattr(g, "num_participants", "?") if g else "?"
     import matchmaking_handlers as mh
-    print("  fill: room 0x%x reports num_participants=%s  (server MAX_PLAYERS=%d, %d clients joined)"
-          % (gid, pop, mh.MAX_PLAYERS, len(hunters)))
+    print("  fill: room 0x%x reports num_participants=%s  (server ROOM_MAX=%d, %d clients joined)"
+          % (gid, pop, mh.ROOM_MAX, len(hunters)))
     return [hunters]
 
 

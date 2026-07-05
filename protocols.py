@@ -579,6 +579,36 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
                     mates |= set(s.participants)
         except Exception:
             mates = set()
+        # Re-stamp the probe-back station onto the caller's REFLEXIVE endpoint -- the addr+port the
+        # server OBSERVED the caller connect from (what _build_public publishes and get_session_urls
+        # hands every joiner). Why it's needed: the client fills station_to_probe from its OWN NAT
+        # discovery, which reads its real ISP NAT over the default route, NOT the overlay it reached
+        # us on. On an overlay that doesn't own the default route (Radmin), that self-report is the
+        # raw public IP, so forwarding it verbatim fires the hole-punch across the open internet
+        # instead of the VPN => cross-plane, punch fails, "see the room but can't join it."
+        #
+        # Gate on ADDRESS divergence: only rewrite when the self-reported address != the reflexive
+        # one. When they're equal -- the pure-public / PORT-FORWARD case, where NAT discovery and
+        # the observed source are the same public IP -- leave the probe UNTOUCHED, so we never
+        # rewrite a working public P2P port (over raw NAT the port IS the hole). That makes the fix
+        # a strict no-op for public hosting; it only fires on a real overlay-plane split. When it
+        # does fire we swap both address and port to the reflexive endpoint: the address puts the
+        # punch back on the overlay, and the overlay routes whatever port. natf/natm are left as
+        # reported. Fail-open: no reflexive station => forward verbatim.
+        #
+        # Verified live 2026-07-05 (Radmin, incl. a remote friend + cross-region JP<->US): baseline
+        # forwarded the public IP verbatim => result=False; this restamp => reflexive 26.x =>
+        # result=True + in-game join. Tailscale can't exercise this path -- it owns the default
+        # route, so the self-report is already the 100.x overlay IP (no divergence, gate no-ops).
+        probe = station_to_probe
+        reflexive = matchmaking_handlers.STATIONS.get(caller)
+        if reflexive is not None and reflexive["address"] != station_to_probe["address"]:
+            probe = station_to_probe.copy()
+            probe["address"] = reflexive["address"]
+            probe["port"] = reflexive["port"]
+            logger.info("  -> restamp probe pid=%s: %s:%s (self-reported) -> %s:%s (reflexive)",
+                        caller, station_to_probe["address"], station_to_probe["port"],
+                        probe["address"], probe["port"])
         for url in limits.bound_list(target_urls):
             rvcid = url["RVCID"]
             target_pid = matchmaking_handlers.CID_TO_PID.get(rvcid)
@@ -593,13 +623,13 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
                 continue
             try:
                 out = streams.StreamOut(target_client.settings)
-                out.stationurl(station_to_probe)
+                out.stationurl(probe)
                 await target_client.request(
                     nattraversal.NATTraversalProtocol.PROTOCOL_ID,
                     nattraversal.NATTraversalProtocol.METHOD_INITIATE_PROBE,
                     out.get(), noresponse=True)
                 logger.info("  -> forwarded InitiateProbe(joiner=%s) to host pid=%s RVCID=%s",
-                            station_to_probe, target_pid, rvcid)
+                            probe, target_pid, rvcid)
             except Exception as e:
                 logger.info("  -> InitiateProbe forward to pid=%s failed: %s", target_pid, e)
         return None

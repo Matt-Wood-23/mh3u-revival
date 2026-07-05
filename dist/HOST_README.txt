@@ -16,12 +16,13 @@ You still play through the normal MH3U Online bundle; this only adds the
 1. Put HOST_MH3U.bat and server.exe together in one folder. Easiest spot:
    right inside your MH3U Online bundle folder (next to PLAY MH3U ONLINE.bat).
 
-2. Make sure Tailscale is running and signed in (the recommended way for
-   friends to reach you). LAN/public IP also works if you know what you're
-   doing.
+2. Make sure your overlay VPN is running and signed in - Tailscale or Radmin
+   VPN (the recommended way for friends to reach you). LAN/public IP also
+   works if you know what you're doing.
 
 3. Double-click  HOST_MH3U.bat
-   - It prints the IP your friends connect to (your Tailscale 100.x address).
+   - It prints the IP your friends connect to (your Tailscale 100.x address;
+     on Radmin VPN, enter your 26.x address at the prompt instead).
    - KEEP THIS WINDOW OPEN while you play. Closing it stops the server.
 
 4. Now start the game yourself: run  PLAY MH3U ONLINE.bat  (from the bundle).
@@ -43,6 +44,7 @@ You still play through the normal MH3U Online bundle; this only adds the
 * First launch can take a second or two while it unpacks itself - that's
   expected for a single-file program.
 
-* Friends having trouble connecting? 99% of the time it's the Tailscale
-  link, not the server. Have them run:  tailscale ping <your 100.x IP>
-  and confirm they get "pong".
+* Friends having trouble connecting? 99% of the time it's the overlay VPN
+  link, not the server. On Tailscale, have them run  tailscale ping <your
+  100.x IP>  and confirm "pong"; on Radmin, have them  ping <your 26.x IP>.
+  Everyone must be on the SAME overlay as the host.

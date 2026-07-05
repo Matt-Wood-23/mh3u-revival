@@ -28,6 +28,12 @@ Nintendo files, and **online is already switched on for you**. You bring only yo
    The host gives you their Tailscale IP (a `100.x` address). Make sure you can reach it before
    playing: `tailscale ping <ip>` → "pong".
 
+   **Prefer Radmin VPN?** Same idea, often less fiddly: install
+   [Radmin VPN](https://www.radmin-vpn.com/), choose **Network → Join an existing network**, and
+   enter the network name + password the host gives you. Both PCs then show `26.x.x.x` IPs — the
+   host gives you *their* `26.x` to enter in the game. Confirm you can reach it first:
+   `ping <host's 26.x>` → reply.
+
 3. **Add your MH3U game files (your "dump")** — the same game data you'd use to play MH3U in
    Cemu (not included; bring your own legal copy). You need both the base game
    `[0005000010118300]` and the update `[0005000e10118300]`. Pick **either** way:

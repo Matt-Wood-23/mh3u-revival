@@ -173,7 +173,7 @@ we recommend them:
 
 | Model | How | Exposes host IP? | CGNAT-proof? | Notes |
 |---|---|---|---|---|
-| **Overlay VPN** (Tailscale) | both ends join a private overlay; host advertises its `100.x` overlay IP | No | Yes | **Recommended.** Private, invite-only, no router config. Only the host organizes the tailnet; joiners just install the client + join it. |
+| **Overlay VPN** (Tailscale or Radmin) | both ends join a private overlay; host advertises its overlay IP (Tailscale `100.x`, Radmin `26.x`) | No | Yes | **Recommended.** Private, invite-only, no router config. The server re-stamps each P2P endpoint to the overlay plane, so hunts ride the VPN even though Cemu reports its public IP for the NAT probe — this is what makes **Radmin** work (verified live, incl. cross-region JP↔US). |
 | **Public path** (port-forward / DMZ / passthrough) | host opens UDP 1223+1224 (or DMZ/passthroughs the PC), shares public IP | Yes | joiners yes, host no | **Proven live 2026-07** (DMZ/passthrough form): real session incl. a cellular-CGNAT joiner, no overlay. Host's line must have a real public IPv4. Guide: [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md). |
 | **Raw NAT hole-punch** | rely on NEX NATTraversal between two home routers, no overlay | minimal | partial | Best-effort. The reachable-host topology (NAT'd joiner → open host) is **proven on the bare internet** (2026-07, part of the public path above). NAT'd-peer ↔ NAT'd-peer (a joiner-hosted room) remains **(provisional)** — only ever proven *inside* Tailscale, which already flattens NAT. |
 
@@ -204,9 +204,11 @@ explicitly **out of scope** (it's what projects like Pretendo do). Instead:
 ## 7. Scope, status, and roadmap
 
 **Beta scope (deliberate):**
-- **Hard cap 4 players** → every server is exactly one room, the only configuration that
-  has been hardened (the rejoin/reaper work above). This sidesteps the untested
-  many-players / multi-room load profile.
+- **4 players per hunt room** → the game's own P2P limit, not raisable server-side
+  (`MH3U_ROOM_MAX`, leave at 4). **Gathering halls hold more** — default 16
+  (`MH3U_HALL_MAX`), server-tunable, since the hall is server-roster-fed and P2P is
+  room-scoped. Multiple 4-player rooms per server are supported (the rejoin/reaper +
+  multi-room churn hardening above); larger live halls are the current beta test.
 - Open-source, non-commercial, dumpless, self-hosted. **Not** a public service.
 
 **Tested:** identity generation (format + uniqueness + idempotency); a launcher-generated

@@ -1,7 +1,9 @@
 # Hosting a MH3U Revival game
 
 You run the server; your friends point their patched Cemu at you. The server does auth +
-matchmaking + presence — the hunt itself is peer-to-peer. **Beta: 4 players (one room).**
+matchmaking + presence — the hunt itself is peer-to-peer. **Beta: up to 16 hunters per
+gathering hall, 4 per hunt room** (the 4-per-room is the game's own P2P limit; the hall size
+is server-tunable — see `MH3U_HALL_MAX` in the env-var table).
 
 ## Two ways to host
 
@@ -99,7 +101,7 @@ MH3U_ADVERTISE=<your-reachable-ip> python server.py
 ## 3. Make the server reachable
 | Players are… | Do this | `<reachable-ip>` |
 |---|---|---|
-| **over an overlay (recommended)** | you + friends join a Tailscale network | your Tailscale `100.x` IP |
+| **over an overlay (recommended)** | you + friends join a **Tailscale** *or* **Radmin** network | overlay IP (Tailscale `100.x` / Radmin `26.x`) |
 | anywhere, no VPN | open the public path — see [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md) | your public IP (`curl ifconfig.me`) |
 | on your LAN | nothing | your LAN IP (e.g. `192.168.1.50`) |
 
@@ -134,6 +136,16 @@ MH3U_ADVERTISE=<your-reachable-ip> python server.py
 
 > Tested end-to-end on Tailscale — a **4-player** hunt including a **genuinely remote friend** on
 > his own PC and ISP; all P2P links established.
+
+**Overlay alternative — Radmin VPN:** if you'd rather use [Radmin VPN](https://www.radmin-vpn.com/)
+(free, and often less fiddly than tailnets): install it on every gaming PC, **create a network**
+(you) and have friends **join it** by name + password. Your Radmin IP is the `26.x.x.x` shown next
+to your PC in the Radmin window — run the server with `MH3U_ADVERTISE=<that 26.x IP>`, and friends
+put the **same** `26.x` in their `mh3u_server.txt`. Confirm reachability first: a friend's
+`ping <your 26.x>` should reply. The server re-stamps each hunt's P2P endpoint to the Radmin plane,
+so hunts connect even though Cemu reports its raw public IP for the hole-punch — **verified live,
+including a cross-region JP↔US pair.** Note: the Host Add-on's `HOST_MH3U.bat` auto-detects your
+*Tailscale* IP specifically; on Radmin, run the server from source with `MH3U_ADVERTISE=<your 26.x>`.
 
 > **Why an overlay:** it's private (no IP exposure), needs no router config, and works
 > behind CGNAT — which raw hole-punch and port-forwarding don't. See
@@ -175,6 +187,9 @@ same hall and enter your room.
 |---|---|---|
 | `MH3U_ADVERTISE` | (none) | reachable IP handed to joiners; substitutes loopback for co-located peers |
 | `MH3U_BIND` | `0.0.0.0` | bind address (set `127.0.0.1` to restrict to local) |
+| `MH3U_HALL_MAX` | `16` | hunters who can share a **gathering hall / lobby** at once (each then forms their own hunt room). The hall is server-roster-fed, so this is safe to raise; the game renders large halls fine. Bump for a bigger community hub. |
+| `MH3U_ROOM_MAX` | `4` | hunters per **hunt room**. This is the game's own P2P limit — **leave it at 4**; the client isn't built for more in one hunt. Exposed only for completeness. |
+| `MH3U_NUM_WORLDS` | `1` | number of gathering **worlds** advertised on the world-select screen. Rooms are global (not tied to a world), so one world is honest for a small server; raise to seed more world entries. |
 | `MH3U_NOTIFY_ON` | `1` | on room leave/disconnect, notify the remaining players so their game drops the leaver (the rejoin fix — works for any host, local or remote). Leave on. |
 | `MH3U_HOST_FREE` | `0` | legacy fallback for the same fix: poke the departed guest's slot directly in the **host Cemu's** RAM. Only works when the server runs **on the same machine as the host Cemu**; superseded by `MH3U_NOTIFY_ON`. |
 | `MH3U_HOST_HINT` | `e:\cemu-src` | exe-path hint to find the host Cemu process (legacy poke only) |

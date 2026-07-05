@@ -36,7 +36,11 @@ If you represent a rights-holder with a concern, please open an issue.
 ## What works today (beta)
 
 - ✅ Dumpless auth → gathering halls → room create/browse/join → **P2P hunts**.
-- ✅ Four players connected cross-machine over an overlay VPN (Tailscale), hole-punched.
+- ✅ Four players connected cross-machine over an overlay VPN (**Tailscale or Radmin**),
+  hole-punched. The server re-stamps each hunt's peer-to-peer endpoint to the plane you reached
+  it on, so **Radmin** groups connect even though Cemu reports its raw public IP for the
+  hole-punch probe — verified with a remote player whose join went from **failing to working**
+  with this fix alone (and cross-region JP↔US at that).
 - ✅ **Public-internet hosting (no VPN)** — verified live: a joiner on a cellular network
   (behind CGNAT) authenticated and P2P'd into a hosted room via the host's bare public IP.
   Host-side setup guide: [docs/PUBLIC_HOSTING.md](docs/PUBLIC_HOSTING.md).
@@ -59,8 +63,9 @@ upstream Cemu regression) is fixed in the bundle's Cemu since **v0.1.6**. The JP
 
 **Still being tested (don't expect polish yet):** *joiner-hosted* rooms
 between two NAT'd players on the bare internet (host-hosted rooms are the verified path); the
-Linux bundle beyond LAN play. This is a **beta** — it's scoped to **4 players (one room) per
-server** on purpose, because that's the configuration that's been hardened.
+Linux bundle beyond LAN play; and — new — **larger gathering halls** (default 16 hunters per
+hall, multiple 4-player rooms per server), now that public-IP hosting makes a bigger crowd
+reachable. Hunts stay **4 players** (the game's P2P limit); the hall size is what's growing.
 
 ---
 
@@ -70,7 +75,7 @@ This is a beta — expect rough edges and bugs that haven't surfaced yet. If you
 please report it on the
 **[issue tracker](https://github.com/Matt-Wood-23/mh3u-revival/issues)**. What helps most:
 what you were doing, whether you were the host or a joiner, your reachability method
-(Tailscale / LAN), and — if you're the host — the relevant server log
+(Tailscale / Radmin / LAN / public IP), and — if you're the host — the relevant server log
 lines.
 
 ---
@@ -123,8 +128,9 @@ Binds UDP `1223` (auth) + `1224` (secure). Players point their patched Cemu at
 - **Private/invite, not public.** Reachability is via a private overlay (Tailscale), or —
   for hosts who opt in — their own public IP ([docs/PUBLIC_HOSTING.md](docs/PUBLIC_HOSTING.md)).
   Either way it's invite-only, not "post your IP for the world."
-- **Beta, 4 players/room.** Larger-capacity / community-hub hosting is under investigation,
-  not shipped.
+- **Beta, 4 players/room.** Hunts are 4 (the game's P2P limit). Larger **gathering halls**
+  (default 16, multiple rooms per server) are the current beta test, unlocked now that
+  public-IP hosting makes a bigger crowd reachable.
 - **No resources to host for everyone** — and that's by design; see decentralized, above.
 
 ---
@@ -140,8 +146,10 @@ being explored for later — **not promised, and the order isn't fixed**:
   (symmetric NAT / CGNAT), for when even an overlay isn't enough.
 - **First-class Linux support.** The experimental community bundle graduating to a maintained
   release artifact — ideally CI-built AppImages from the Cemu fork instead of hand-built ones.
-- **Larger lobbies / community hubs.** More than 4 players, and/or a shared "hub" server a
-  group can point an LFG at — needs the multi-room churn hardened first.
+- **Larger lobbies / community hubs.** *In beta testing now* — the gathering hall holds 16
+  by default (`MH3U_HALL_MAX`) with multiple 4-player rooms per server, on the back of the
+  hardened multi-room churn + public-IP hosting. Still to prove: a real hall with many live
+  hunters (roster UI / hall behavior beyond 4), and a shared "hub" server a group points an LFG at.
 - **Mod menu / cheats in online sessions (experimental, untested).** The reverse-engineering
   behind this project also produced a whole MH3U cheat suite — a full Python **mod menu** plus
   all kinds of trainers (player / monster / item). I haven't tested any of it **while online**

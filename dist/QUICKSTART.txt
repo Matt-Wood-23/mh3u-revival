@@ -5,9 +5,9 @@ A ready-to-run patched Cemu for playing MH3U online on a self-hosted server. No
 Python, no account to create, no Nintendo files, and online is ALREADY switched
 on for you. You bring only your own MH3U game dump.
 
-You connect to the host over Tailscale - a free VPN app that tunnels straight to
-the host's PC over the internet and sidesteps all router/NAT setup. The host does
-NOT need to port-forward for this.
+You connect to the host over an overlay VPN - Tailscale or Radmin - a free app that
+tunnels straight to the host's PC over the internet and sidesteps all router/NAT
+setup. The host does NOT need to port-forward for this.
 
 
 HEADS UP: WINDOWS WILL WARN ABOUT Cemu_release.exe
@@ -32,6 +32,11 @@ STEPS
    can't see your device: switch to their tailnet in the Tailscale UI and LOG OUT / log
    back in on the app to re-bind. The host gives you their Tailscale IP (a 100.x
    address); confirm you can reach it - `tailscale ping <that IP>` should say "pong".
+
+   PREFER RADMIN VPN? Often simpler: install Radmin VPN (https://www.radmin-vpn.com/),
+   click Network -> "Join an existing network", and enter the network NAME + PASSWORD the
+   host gives you. Both PCs then show 26.x.x.x IPs; the host gives you THEIR 26.x to use as
+   the host IP. Confirm first: `ping <host's 26.x>` should reply.
 
 3. Add your MH3U dump (NOT included - bring your own). You need BOTH:
        MONSTER HUNTER 3 ULTIMATE [Game]   [0005000010118300]   (~6 GB)
@@ -102,9 +107,9 @@ TROUBLESHOOTING
 - Game not in Cemu's list after "Add games directory" = you probably picked a [Game]
   folder itself. Pick its PARENT folder instead (the one that CONTAINS it).
 - "Connected to the internet" then drops back to village = it can't reach the
-  host's server. 99% of the time that's Tailscale: confirm you can reach the host's
-  100.x IP (`tailscale ping` -> "pong"). If not, you're not on the host's tailnet
-  yet (step 2) - fix that first.
+  host's server. 99% of the time that's the VPN: on Tailscale, confirm you can reach
+  the host's 100.x IP (`tailscale ping` -> "pong") and that you're on the host's tailnet
+  (step 2); on Radmin, `ping` the host's 26.x IP. Fix that first.
 - Host can't see your device on their tailnet = your client is on your OWN tailnet.
   Switch to the host's tailnet in the Tailscale UI, then LOG OUT and back in on the
   app to re-bind. Accepting the invite alone doesn't do it.

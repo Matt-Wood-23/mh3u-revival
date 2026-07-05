@@ -6,6 +6,7 @@ title MH3U Online - Host Server
 rem ===========================================================================
 rem  MH3U Online -- HOST launcher.  Starts the revival server and shows you the
 rem  IP your friends type into THEIR launcher.  Auto-detects your Tailscale IP.
+rem  Radmin hosts (no Tailscale): enter your 26.x address at the prompt.
 rem  Uses server.exe if present (self-contained, no installs); otherwise falls
 rem  back to "python server.py" for a source checkout.
 rem ===========================================================================
@@ -18,8 +19,9 @@ if not defined IP if exist "%ProgramFiles%\Tailscale\tailscale.exe" for /f "toke
 if defined IP goto haveip
 echo(
 echo  [MH3U Host] Couldn't auto-detect a Tailscale IP.
-echo  If you use Tailscale, make sure it's running and signed in. Otherwise type
-echo  the IP your friends should use, or just press Enter to host for this PC only.
+echo  If you use Tailscale, make sure it's running and signed in. On Radmin VPN,
+echo  type your 26.x address here. Otherwise type the IP your friends should use,
+echo  or just press Enter to host for this PC only.
 set /p "IP=  Server IP [blank = 127.0.0.1]: "
 if not defined IP set "IP=127.0.0.1"
 

@@ -38,7 +38,70 @@ Things that are **not** the problem when halls work but rooms don't:
 `report_nat_traversal_result`. `result=True` means the connection punched through; if
 that line never appears (or says `False`), the direct connection is being blocked —
 firewall, or the two PCs genuinely can't reach each other (on Tailscale, run
-`tailscale ping <the other player's 100.x IP>` in both directions first).
+`tailscale ping <the other player's 100.x IP>` in both directions first; on Radmin, ping
+their `26.x` IP).
+
+---
+
+## Two specific players can't share a Room — every other combination works
+
+The telltale version of the room disconnect: A+B+C works, A+B+D works, but any room
+containing **both C and D** kicks whoever joined last — no matter who hosts, no matter
+the room. The server log looks clean because it *is* clean; the problem is between C's
+and D's PCs.
+
+**Why this happens:** a Room is not "everyone connects to the host" — it's a **full
+mesh**. Every player holds a direct UDP connection to *every other player*, and a
+joiner must connect to **all** current members before the join completes. So one broken
+player↔player link stays invisible until those two specific players are in the same
+room — then the second one in gets "disconnected," while both play fine with everyone
+else.
+
+**Confirm it** (takes two minutes):
+
+1. Have just the two affected players try a room **alone** (either one hosts). If it
+   fails with only them in it, the pair link is the problem — the "4th player" framing
+   was a coincidence.
+2. The host can see the failing edge: search the server console for
+   `report_nat_traversal_result` right after the failed join. A `result=False` (or a
+   `request_probe_initiation_ext` with no `True` afterwards) from one of the pair's
+   `pid=` values is the smoking gun.
+
+**Fixes, in order of likelihood:**
+
+1. **Both** affected players redo the firewall steps from the section above. A Block
+   rule on either side breaks exactly one direction of one pair — which is why the rest
+   of the group is unaffected.
+2. **Check what internet each of the two is on.** Cellular/5G home internet (T-Mobile,
+   Verizon), Starlink, phone hotspots, and campus/apartment shared WiFi all use
+   **carrier-grade NAT (CGNAT)** — and two players who are *both* behind CGNAT (or other
+   strict NAT) genuinely cannot open a direct connection to each other. No firewall or
+   Cemu setting changes this. Quick check: if your router's WAN address starts with
+   `100.64`–`100.127`, or differs from what [whatismyip.com](https://www.whatismyip.com)
+   shows, you're behind CGNAT.
+3. **Already on Tailscale/Radmin and still hitting this?** Being *on* the VPN is not
+   enough — the game has to **connect through it**. The server advertises each player
+   to their peers at whatever address it sees them connect *from*. A player whose
+   `portable/mh3u_server.txt` contains the host's **public** IP is advertised at their
+   raw internet address (their CGNAT), and their room connections skip the VPN
+   entirely — even with the VPN installed and running. **Check every player's
+   `mh3u_server.txt`: it must be the host's VPN IP (Tailscale `100.x.y.z`, or Radmin
+   `26.x.y.z`), the same line for everyone.** One player with the public IP in that file
+   reproduces exactly the "these two specific players can't share a room" symptom.
+
+   **Radmin — the subtle one (now fixed server-side):** even with the correct VPN IP in
+   *every* `mh3u_server.txt`, older servers still failed for **Radmin** users specifically.
+   Cemu reports its raw *public* IP for the peer-to-peer probe even on Radmin (Radmin doesn't
+   sit on the default route the way Tailscale does), so the hole-punch leaked onto the open
+   internet and failed — the exact "see the room, can't join it" symptom, even with everything
+   else correct. **Recent server builds auto-correct this:** the server re-stamps each P2P
+   probe to the same VPN plane you reached it on, so Radmin groups connect. If a Radmin player
+   still can't join, **the host should update their server.**
+4. **If it's CGNAT and there's no VPN yet**, the VPN path is the fix: the whole group
+   (server included) on the same Tailscale/Radmin network — see [PLAYING.md](PLAYING.md).
+   The VPN carries the player↔player traffic, so NAT stops mattering. Failing that, the
+   two simply can't share a room until one of them is on a different network — a
+   server-side relay that would remove this limitation entirely is being investigated.
 
 ---
 

@@ -8,7 +8,7 @@ matchmaking, and the P2P hunt link — including a joiner behind **cellular CGNA
 most hostile NAT there is). The joiner needs zero network config; all the work is on the
 host side, once.
 
-> **Should you use this instead of Tailscale?** The overlay
+> **Should you use this instead of an overlay (Tailscale / Radmin)?** The overlay
 > ([HOSTING.md §3](HOSTING.md#3-make-the-server-reachable)) is still the recommended
 > default: it's private, needs no router access, and works even if *you* are behind CGNAT.
 > Choose the public path when you can't or don't want to put friends on an overlay, and

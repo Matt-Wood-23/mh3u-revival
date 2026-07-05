@@ -38,6 +38,7 @@ import reaper
 import limits
 import natcheck
 import matchmaking_handlers
+import relay
 
 def _log_dir():
     # Frozen (PyInstaller onefile): sys.executable is the real .exe path (the bundle
@@ -325,6 +326,10 @@ async def main():
     reaper.install_rx_stamp()   # stamp last-inbound time on every PRUDP packet (before serving)
     logger.info("MH3U NEX server  |  game_server_id=0x%08X  access_key=%s  nex_version=%d",
                 config.GAME_SERVER_ID, config.ACCESS_KEY, config.NEX_VERSION)
+    if relay.enabled():
+        logger.info("UDP relay: mode=%s bind=%s ports=%d-%d advertise=%s idle=%.0fs",
+                    config.RELAY_MODE, config.HOST, config.RELAY_PORT_START,
+                    config.RELAY_PORT_END, config.RELAY_ADDRESS, config.RELAY_IDLE_TIMEOUT)
     limits.log_config()   # print the active abuse/DoS guardrail caps at startup
 
     auth = [AuthenticationServer(s)]

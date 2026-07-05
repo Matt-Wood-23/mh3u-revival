@@ -25,6 +25,7 @@ from nintendo.nex import rmc, common, matchmaking
 
 import host_roster_free
 import limits
+import relay
 
 logger = logging.getLogger("mh3u.matchmaking")
 
@@ -132,10 +133,12 @@ class GatheringRegistry:
                 continue
             if pid == s.host_pid:
                 del self.sessions[gid]
+                relay.MANAGER.close_gid(gid)
                 affected.append(("destroyed", gid, 0))
             else:
                 s.participants.discard(pid)
                 s.gathering.num_participants = len(s.participants)
+                relay.MANAGER.close_for_pid(pid)
                 affected.append(("left", gid, len(s.participants)))
         return affected
 
@@ -151,9 +154,11 @@ class GatheringRegistry:
             return None
         if pid == s.host_pid:
             del self.sessions[gid]
+            relay.MANAGER.close_gid(gid)
             return ("destroyed", gid, 0)
         s.participants.discard(pid)
         s.gathering.num_participants = len(s.participants)
+        relay.MANAGER.close_for_pid(pid)
         return ("left", gid, len(s.participants))
 
     def destroy(self, gid, owner_pid=None):
@@ -167,6 +172,7 @@ class GatheringRegistry:
         if owner_pid is not None and s.host_pid != owner_pid:
             return "denied"
         del self.sessions[gid]
+        relay.MANAGER.close_gid(gid)
         return "destroyed"
 
     def reap_host(self, pid):
@@ -180,6 +186,7 @@ class GatheringRegistry:
         for gid in list(self.sessions.keys()):
             if self.sessions[gid].host_pid == pid:
                 del self.sessions[gid]
+                relay.MANAGER.close_gid(gid)
                 gone.append(gid)
         return gone
 

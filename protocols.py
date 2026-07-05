@@ -17,6 +17,7 @@ import config
 import matchmaking_handlers
 import host_roster_free
 import limits
+import relay
 
 logger = logging.getLogger("mh3u.proto")
 
@@ -335,6 +336,7 @@ class SecureConnectionServer(_Trace, secure.SecureConnectionServer):
             halls = mh.COMMUNITY.leave_all(pid)
             # Destroy runtime communities this pid owned + drop its rate-limit state.
             reaped = mh.COMMUNITY.reap_owner(pid)
+            relay.MANAGER.close_for_pid(pid)
             limits.forget_pid(pid)
             logger.info("LOGOUT pid=%s cid=%s -> cleaned up; rooms affected=%s; halls left=%s%s",
                         pid, cid, pretty, [hex(g) for g in halls],
@@ -416,20 +418,38 @@ class MatchMakingServer(_Trace, matchmaking.MatchMakingServer):
         return True
 
     # --- room state + P2P address (the joiner's path) -----------------------
-    def _host_station(self, gid):
+    def _room_for_pair(self, host_pid, guest_pid):
+        for gid, sess in matchmaking_handlers.REGISTRY.sessions.items():
+            if sess.host_pid == host_pid and guest_pid in sess.participants:
+                return gid
+        return None
+
+    async def _host_station(self, client, gid):
         sess = matchmaking_handlers.REGISTRY.sessions.get(gid)
         host = sess.host_pid if sess else None
         url = matchmaking_handlers.STATIONS.get(host)
+        if url is None:
+            return []
+        guest = _pid(client)
+        if relay.MANAGER.should_relay(host, guest):
+            try:
+                rurl = await relay.MANAGER.station_for(gid, host, guest, url)
+                logger.info("relay: room gid=0x%x host=%s guest=%s -> %s",
+                            gid, host, guest, rurl)
+                return [rurl]
+            except Exception as e:
+                logger.warning("relay: failed to allocate gid=0x%x host=%s guest=%s: %s; using direct",
+                               gid, host, guest, e)
         return [url] if url is not None else []
 
     async def get_session_urls(self, client, gid):
         # The joiner asks for the room host's StationURL(s) to open the P2P link.
-        urls = self._host_station(gid)
+        urls = await self._host_station(client, gid)
         logger.info("get_session_urls(MM21): gid=0x%x -> %s", gid, [str(u) for u in urls])
         return urls
 
     async def get_participants_urls(self, client, gid):
-        urls = self._host_station(gid)
+        urls = await self._host_station(client, gid)
         logger.info("get_participants_urls(MM21): gid=0x%x -> %s", gid, [str(u) for u in urls])
         return urls
 
@@ -548,6 +568,21 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
     # to actually forward InitiateProbe to the host's connection.
     LABEL = "NATTraversal"
 
+    def _room_pair(self, a_pid, b_pid):
+        """Return (gid, host_pid, guest_pid) for two room peers, regardless of call direction."""
+        if a_pid is None or b_pid is None:
+            return None, None, None
+        try:
+            for gid, sess in matchmaking_handlers.REGISTRY.sessions.items():
+                if a_pid in sess.participants and b_pid in sess.participants:
+                    if sess.host_pid == a_pid:
+                        return gid, a_pid, b_pid
+                    if sess.host_pid == b_pid:
+                        return gid, b_pid, a_pid
+        except Exception:
+            pass
+        return None, None, None
+
     async def report_nat_properties(self, client, natm, natf, rtt):
         logger.info("report_nat_properties: natm=%s natf=%s rtt=%s (pid=%s)", natm, natf, rtt, _pid(client))
         return None
@@ -622,14 +657,30 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
                             rvcid, target_pid)
                 continue
             try:
+                probe_station = probe   # main's reflexive-restamped base
+                used_relay = False
+                relay_gid, host_pid, guest_pid = self._room_pair(caller, target_pid)
+                should_relay = relay.MANAGER.should_relay(host_pid, guest_pid)
+                if should_relay:
+                    if relay_gid is not None:
+                        probe_station = await relay.MANAGER.station_for(
+                            relay_gid, host_pid, guest_pid, probe)
+                        used_relay = True
+                    else:
+                        logger.warning("  -> relay wanted for caller=%s target=%s but no shared room found",
+                                       caller, target_pid)
+                elif relay_gid is not None and relay.enabled():
+                    logger.info("  -> relay not selected for gid=0x%x host=%s guest=%s mode=%s",
+                                relay_gid, host_pid, guest_pid, config.RELAY_MODE)
                 out = streams.StreamOut(target_client.settings)
-                out.stationurl(probe)
+                out.stationurl(probe_station)
                 await target_client.request(
                     nattraversal.NATTraversalProtocol.PROTOCOL_ID,
                     nattraversal.NATTraversalProtocol.METHOD_INITIATE_PROBE,
                     out.get(), noresponse=True)
-                logger.info("  -> forwarded InitiateProbe(joiner=%s) to host pid=%s RVCID=%s",
-                            probe, target_pid, rvcid)
+                logger.info("  -> forwarded InitiateProbe(joiner=%s) to host pid=%s RVCID=%s%s",
+                            probe_station, target_pid, rvcid,
+                            (" via relay gid=0x%x" % relay_gid) if used_relay else " direct")
             except Exception as e:
                 logger.info("  -> InitiateProbe forward to pid=%s failed: %s", target_pid, e)
         return None

@@ -10,6 +10,20 @@ error, so it is the one knob to TUNE empirically — see README "NEX version".
 
 import os
 
+
+def _int_env(name, default):
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _float_env(name, default):
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
 # --- RUNTIME-CONFIRMED (2026-06-14, live PRUDP handshake) -------------------
 # serverId proven by the patched Cemu's ACT_GetNexToken log; access key proven
 # by brute-forcing MH3U's real SYN signature (matched 'cb2b2f5a', NOT the two
@@ -49,6 +63,21 @@ ADVERTISE_ADDRESS = os.environ.get("MH3U_ADVERTISE", "").strip()
 # IP if set (LAN/public/overlay), else 127.0.0.1 for single-machine use. Splitting this
 # from HOST is why binding 0.0.0.0 no longer breaks the ticket.
 SERVER_ADDRESS = ADVERTISE_ADDRESS or "127.0.0.1"
+
+# --- optional UDP P2P relay -------------------------------------------------
+# Direct peer-to-peer remains the default. Set MH3U_RELAY=force to advertise a relay
+# endpoint for every host<->guest gameplay link.
+RELAY_MODE = os.environ.get("MH3U_RELAY", "off").strip().lower()
+if RELAY_MODE not in ("off", "force"):
+    RELAY_MODE = "off"
+
+# Address/ports advertised for relayed gameplay UDP. The relay binds on MH3U_BIND and tells
+# clients to connect to RELAY_ADDRESS. Use the same reachable address as the NEX server unless
+# the relay is exposed through a different IP/name.
+RELAY_ADDRESS = os.environ.get("MH3U_RELAY_ADVERTISE", SERVER_ADDRESS).strip() or SERVER_ADDRESS
+RELAY_PORT_START = _int_env("MH3U_RELAY_PORT_START", 27100)
+RELAY_PORT_END = _int_env("MH3U_RELAY_PORT_END", 27164)
+RELAY_IDLE_TIMEOUT = _float_env("MH3U_RELAY_IDLE_TIMEOUT", 300.0)
 
 # The fixed NEX password the patched Cemu hands the game (napi_act.cpp
 # ACT_GetNexToken redirect). The game derives its kerberos key from this, so the

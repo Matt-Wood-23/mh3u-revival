@@ -33,6 +33,7 @@ import users
 import protocols
 import reaper
 import limits
+import natcheck
 
 logging.basicConfig(
     level=logging.INFO,
@@ -183,6 +184,7 @@ async def main():
         async with rmc.serve(s, secure, config.HOST, config.SECURE_PORT, key=server_key):
             logger.info("listening: auth=%s:%d  secure=%s:%d  (Ctrl-C / enter to stop)",
                         config.HOST, config.AUTH_PORT, config.HOST, config.SECURE_PORT)
+            await natcheck.start(config.HOST)
             asyncio.create_task(protocols.notify_trigger_watcher())
             asyncio.create_task(reaper.reaper_task())
             try:

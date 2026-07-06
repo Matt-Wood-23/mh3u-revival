@@ -5,27 +5,38 @@ title MH3U Online - Host Server
 
 rem ===========================================================================
 rem  MH3U Online -- HOST launcher.  Starts the revival server and shows you the
-rem  IP your friends type into THEIR launcher.  Auto-detects your Tailscale IP.
-rem  Radmin hosts (no Tailscale): enter your 26.x address at the prompt.
+rem  IP your friends type into THEIR launcher.  Detects Radmin VPN (26.x) and
+rem  Tailscale (100.x) addresses but ALWAYS asks -- it never silently picks one
+rem  (a PC can have both installed while friends are on the other overlay).
 rem  Uses server.exe if present (self-contained, no installs); otherwise falls
 rem  back to "python server.py" for a source checkout.
 rem ===========================================================================
 
 rem --- 1) work out the address friends will connect to -----------------------
 set "IP="
-for /f "tokens=*" %%a in ('tailscale ip -4 2^>nul') do if not defined IP set "IP=%%a"
-if not defined IP if exist "%ProgramFiles%\Tailscale\tailscale.exe" for /f "tokens=*" %%a in ('"%ProgramFiles%\Tailscale\tailscale.exe" ip -4 2^>nul') do if not defined IP set "IP=%%a"
+set "TSIP="
+set "RVIP="
+for /f "tokens=*" %%a in ('tailscale ip -4 2^>nul') do if not defined TSIP set "TSIP=%%a"
+if not defined TSIP if exist "%ProgramFiles%\Tailscale\tailscale.exe" for /f "tokens=*" %%a in ('"%ProgramFiles%\Tailscale\tailscale.exe" ip -4 2^>nul') do if not defined TSIP set "TSIP=%%a"
+for /f "usebackq tokens=*" %%a in (`powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {$_.IPAddress -like '26.*'} | Select-Object -First 1).IPAddress" 2^>nul`) do if not defined RVIP set "RVIP=%%a"
 
-if defined IP goto haveip
+rem  Enter-default: Radmin if present, else Tailscale, else host-only loopback.
+set "DEFIP=127.0.0.1"
+set "DEFSRC=this PC only"
+if defined TSIP set "DEFIP=%TSIP%"
+if defined TSIP set "DEFSRC=Tailscale"
+if defined RVIP set "DEFIP=%RVIP%"
+if defined RVIP set "DEFSRC=Radmin VPN"
+
 echo(
-echo  [MH3U Host] Couldn't auto-detect a Tailscale IP.
-echo  If you use Tailscale, make sure it's running and signed in. On Radmin VPN,
-echo  type your 26.x address here. Otherwise type the IP your friends should use,
-echo  or just press Enter to host for this PC only.
-set /p "IP=  Server IP [blank = 127.0.0.1]: "
-if not defined IP set "IP=127.0.0.1"
-
-:haveip
+echo  [MH3U Host] Which IP will your friends connect to?
+if defined RVIP echo    Radmin VPN detected:  %RVIP%
+if defined TSIP echo    Tailscale detected:   %TSIP%
+if not defined RVIP if not defined TSIP echo    No overlay VPN detected on this PC.
+echo    You can also type any other IP - public / port-forward / LAN.
+echo(
+set /p "IP=  Server IP  [Enter = %DEFIP% - %DEFSRC%]: "
+if not defined IP set "IP=%DEFIP%"
 echo(
 echo  ===========================================================================
 echo     MH3U ONLINE SERVER

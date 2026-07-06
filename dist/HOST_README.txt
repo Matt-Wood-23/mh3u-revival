@@ -21,8 +21,9 @@ You still play through the normal MH3U Online bundle; this only adds the
    works if you know what you're doing.
 
 3. Double-click  HOST_MH3U.bat
-   - It prints the IP your friends connect to (your Tailscale 100.x address;
-     on Radmin VPN, enter your 26.x address at the prompt instead).
+   - It detects your Radmin VPN (26.x) and/or Tailscale (100.x) address and
+     asks which IP friends should use. Press Enter to accept the suggested
+     one, or type a different IP (public / port-forward / LAN).
    - KEEP THIS WINDOW OPEN while you play. Closing it stops the server.
 
 4. Now start the game yourself: run  PLAY MH3U ONLINE.bat  (from the bundle).

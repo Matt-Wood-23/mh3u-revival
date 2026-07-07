@@ -66,9 +66,10 @@ SERVER_ADDRESS = ADVERTISE_ADDRESS or "127.0.0.1"
 
 # --- optional UDP P2P relay -------------------------------------------------
 # Direct peer-to-peer remains the default. Set MH3U_RELAY=force to advertise a relay
-# endpoint for every host<->guest gameplay link.
+# endpoint for every host<->guest gameplay link. Set MH3U_RELAY=auto to learn
+# failed direct pairs in memory and relay those pairs on later attempts.
 RELAY_MODE = os.environ.get("MH3U_RELAY", "off").strip().lower()
-if RELAY_MODE not in ("off", "force"):
+if RELAY_MODE not in ("off", "force", "auto"):
     RELAY_MODE = "off"
 
 # Address/ports advertised for relayed gameplay UDP. The relay binds on MH3U_BIND and tells
@@ -78,6 +79,18 @@ RELAY_ADDRESS = os.environ.get("MH3U_RELAY_ADVERTISE", SERVER_ADDRESS).strip() o
 RELAY_PORT_START = _int_env("MH3U_RELAY_PORT_START", 27100)
 RELAY_PORT_END = _int_env("MH3U_RELAY_PORT_END", 27164)
 RELAY_IDLE_TIMEOUT = _float_env("MH3U_RELAY_IDLE_TIMEOUT", 300.0)
+
+# In-memory auto-relay learning. This state is deliberately not persisted across
+# server restarts; it only prevents repeated failed direct joins during one uptime.
+RELAY_AUTO_MAX_CLIENTS = _int_env("MH3U_RELAY_AUTO_MAX_CLIENTS", 500)
+RELAY_AUTO_MAX_PAIRS = _int_env("MH3U_RELAY_AUTO_MAX_PAIRS", 2000)
+RELAY_AUTO_PAIR_TTL = _float_env("MH3U_RELAY_AUTO_PAIR_TTL", 86400.0)
+RELAY_AUTO_CLIENT_TTL = _float_env("MH3U_RELAY_AUTO_CLIENT_TTL", 3600.0)
+
+# Optional comma-separated NAT property values to treat as relay-worthy once the
+# game's natm/natf constants are decoded from live captures.
+RELAY_AUTO_BAD_NATM = os.environ.get("MH3U_RELAY_AUTO_BAD_NATM", "").strip()
+RELAY_AUTO_BAD_NATF = os.environ.get("MH3U_RELAY_AUTO_BAD_NATF", "").strip()
 
 # The fixed NEX password the patched Cemu hands the game (napi_act.cpp
 # ACT_GetNexToken redirect). The game derives its kerberos key from this, so the

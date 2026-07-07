@@ -12,12 +12,19 @@ import time
 from nintendo.nex import common
 
 import config
+import relay_policy
 
 logger = logging.getLogger("mh3u.relay")
 
 
 def enabled():
-    return config.RELAY_MODE == "force"
+    return config.RELAY_MODE in ("force", "auto")
+
+
+def _pair_key(gid, a_pid, b_pid):
+    if a_pid <= b_pid:
+        return gid, a_pid, b_pid
+    return gid, b_pid, a_pid
 
 
 def _copy_station(url):
@@ -75,16 +82,24 @@ class RelayManager:
         self._janitor = None
 
     def should_relay(self, host_pid, guest_pid):
-        if not enabled() or host_pid is None or guest_pid is None or host_pid == guest_pid:
+        if host_pid is None or guest_pid is None or host_pid == guest_pid:
             return False
-        return True
+        if config.RELAY_MODE == "force":
+            return True
+        if config.RELAY_MODE == "auto":
+            selected, reason = relay_policy.decide(host_pid, guest_pid)
+            if selected:
+                logger.info("relay auto: host=%s guest=%s selected reason=%s",
+                            host_pid, guest_pid, reason)
+            return selected
+        return False
 
     async def station_for(self, gid, host_pid, guest_pid, peer_station):
         pair = await self._get_or_create(gid, host_pid, guest_pid)
         return relay_station(peer_station, pair.port)
 
     async def _get_or_create(self, gid, host_pid, guest_pid):
-        key = (gid, host_pid, guest_pid)
+        key = _pair_key(gid, host_pid, guest_pid)
         relay = self._relays.get(key)
         if relay is not None:
             return relay

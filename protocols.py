@@ -18,6 +18,7 @@ import matchmaking_handlers
 import host_roster_free
 import limits
 import relay
+import relay_policy
 
 logger = logging.getLogger("mh3u.proto")
 
@@ -287,6 +288,7 @@ class SecureConnectionServer(_Trace, secure.SecureConnectionServer):
         # InitiateProbe to this peer (server->client RMC).
         matchmaking_handlers.CLIENTS[_pid(client)] = client
         matchmaking_handlers.CID_TO_PID[cid] = _pid(client)
+        relay_policy.record_seen(_pid(client))
         logger.info("REGISTER pid=%s cid=%s urls=%s -> public=%s",
                     _pid(client), cid, [str(u) for u in urls], station)
         resp = rmc.RMCResponse()
@@ -569,22 +571,21 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
     LABEL = "NATTraversal"
 
     def _room_pair(self, a_pid, b_pid):
-        """Return (gid, host_pid, guest_pid) for two room peers, regardless of call direction."""
+        """Return (gid, low_pid, high_pid) for any two peers sharing a room."""
         if a_pid is None or b_pid is None:
             return None, None, None
         try:
             for gid, sess in matchmaking_handlers.REGISTRY.sessions.items():
                 if a_pid in sess.participants and b_pid in sess.participants:
-                    if sess.host_pid == a_pid:
-                        return gid, a_pid, b_pid
-                    if sess.host_pid == b_pid:
-                        return gid, b_pid, a_pid
+                    return (gid, a_pid, b_pid) if a_pid < b_pid else (gid, b_pid, a_pid)
         except Exception:
             pass
         return None, None, None
 
     async def report_nat_properties(self, client, natm, natf, rtt):
-        logger.info("report_nat_properties: natm=%s natf=%s rtt=%s (pid=%s)", natm, natf, rtt, _pid(client))
+        pid = _pid(client)
+        relay_policy.record_nat_properties(pid, natm, natf, rtt)
+        logger.info("report_nat_properties: natm=%s natf=%s rtt=%s (pid=%s)", natm, natf, rtt, pid)
         return None
 
     async def request_probe_initiation(self, client, target_urls):
@@ -635,15 +636,20 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
         # forwarded the public IP verbatim => result=False; this restamp => reflexive 26.x =>
         # result=True + in-game join. Tailscale can't exercise this path -- it owns the default
         # route, so the self-report is already the 100.x overlay IP (no divergence, gate no-ops).
-        probe = station_to_probe
+        base_probe = station_to_probe
         reflexive = matchmaking_handlers.STATIONS.get(caller)
         if reflexive is not None and reflexive["address"] != station_to_probe["address"]:
-            probe = station_to_probe.copy()
-            probe["address"] = reflexive["address"]
-            probe["port"] = reflexive["port"]
+            base_probe = station_to_probe.copy()
+            base_probe["address"] = reflexive["address"]
+            base_probe["port"] = reflexive["port"]
+            relay_policy.record_plane_mismatch(
+                caller,
+                "%s:%s" % (station_to_probe["address"], station_to_probe["port"]),
+                "%s:%s" % (reflexive["address"], reflexive["port"]),
+            )
             logger.info("  -> restamp probe pid=%s: %s:%s (self-reported) -> %s:%s (reflexive)",
                         caller, station_to_probe["address"], station_to_probe["port"],
-                        probe["address"], probe["port"])
+                        base_probe["address"], base_probe["port"])
         for url in limits.bound_list(target_urls):
             rvcid = url["RVCID"]
             target_pid = matchmaking_handlers.CID_TO_PID.get(rvcid)
@@ -657,41 +663,52 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
                             rvcid, target_pid)
                 continue
             try:
-                probe_station = probe   # main's reflexive-restamped base
+                probe_for_target = base_probe
                 used_relay = False
-                relay_gid, host_pid, guest_pid = self._room_pair(caller, target_pid)
-                should_relay = relay.MANAGER.should_relay(host_pid, guest_pid)
+                relay_gid, peer_a, peer_b = self._room_pair(caller, target_pid)
+                should_relay = relay.MANAGER.should_relay(peer_a, peer_b)
                 if should_relay:
                     if relay_gid is not None:
-                        probe_station = await relay.MANAGER.station_for(
-                            relay_gid, host_pid, guest_pid, probe)
+                        probe_for_target = await relay.MANAGER.station_for(
+                            relay_gid, peer_a, peer_b, base_probe)
                         used_relay = True
                     else:
                         logger.warning("  -> relay wanted for caller=%s target=%s but no shared room found",
                                        caller, target_pid)
                 elif relay_gid is not None and relay.enabled():
-                    logger.info("  -> relay not selected for gid=0x%x host=%s guest=%s mode=%s",
-                                relay_gid, host_pid, guest_pid, config.RELAY_MODE)
+                    logger.info("  -> relay not selected for gid=0x%x peer_a=%s peer_b=%s mode=%s",
+                                relay_gid, peer_a, peer_b, config.RELAY_MODE)
                 out = streams.StreamOut(target_client.settings)
-                out.stationurl(probe_station)
+                out.stationurl(probe_for_target)
                 await target_client.request(
                     nattraversal.NATTraversalProtocol.PROTOCOL_ID,
                     nattraversal.NATTraversalProtocol.METHOD_INITIATE_PROBE,
                     out.get(), noresponse=True)
                 logger.info("  -> forwarded InitiateProbe(joiner=%s) to host pid=%s RVCID=%s%s",
-                            probe_station, target_pid, rvcid,
+                            probe_for_target, target_pid, rvcid,
                             (" via relay gid=0x%x" % relay_gid) if used_relay else " direct")
             except Exception as e:
                 logger.info("  -> InitiateProbe forward to pid=%s failed: %s", target_pid, e)
         return None
 
     async def report_nat_traversal_result(self, client, cid, result):
-        logger.info("report_nat_traversal_result: cid=%s result=%s (pid=%s)", cid, result, _pid(client))
+        pid = _pid(client)
+        other_pid = matchmaking_handlers.CID_TO_PID.get(cid)
+        learned = relay_policy.record_probe_result(pid, other_pid, cid, bool(result))
+        logger.info("report_nat_traversal_result: cid=%s result=%s (pid=%s other_pid=%s)",
+                    cid, result, pid, other_pid)
+        if not learned:
+            logger.info("  -> duplicate NAT traversal result ignored for auto-relay learning")
         return None
 
     async def report_nat_traversal_result_detail(self, client, cid, result, detail, rtt):
-        logger.info("report_nat_traversal_result_detail: cid=%s result=%s detail=%s rtt=%s (pid=%s)",
-                    cid, result, detail, rtt, _pid(client))
+        pid = _pid(client)
+        other_pid = matchmaking_handlers.CID_TO_PID.get(cid)
+        learned = relay_policy.record_probe_result(pid, other_pid, cid, bool(result))
+        logger.info("report_nat_traversal_result_detail: cid=%s result=%s detail=%s rtt=%s (pid=%s other_pid=%s)",
+                    cid, result, detail, rtt, pid, other_pid)
+        if not learned:
+            logger.info("  -> duplicate NAT traversal result detail ignored for auto-relay learning")
         return None
 
 

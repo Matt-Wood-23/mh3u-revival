@@ -207,6 +207,34 @@ def test_shout_broadcast_gate():
     print("  F5 broadcast-fallback gate: OK")
 
 
+def test_shout_room_scoping():
+    # Room chat must stay in the room (hall membership persists while in a room, so the old
+    # room|hall union leaked shouts across rooms), and lobby chat must not pierce into rooms.
+    from types import SimpleNamespace
+    saved_clients = dict(mh.CLIENTS)
+    saved_sessions = dict(mh.REGISTRY.sessions)
+    saved_comms = dict(mh.COMMUNITY.communities)
+    try:
+        mh.CLIENTS.clear()
+        mh.CLIENTS.update({p: object() for p in (1, 2, 3, 4, 5, 6)})
+        mh.REGISTRY.sessions.clear()
+        mh.REGISTRY.sessions.update({
+            0xA: SimpleNamespace(participants={1, 2}),     # room A
+            0xB: SimpleNamespace(participants={3, 4}),     # room B
+        })
+        mh.COMMUNITY.communities.clear()
+        # everyone is still a hall member, including the in-room players
+        mh.COMMUNITY.communities[0x100] = SimpleNamespace(participants={1, 2, 3, 4, 5, 6})
+        assert protocols._shout_targets(1) == {1, 2}       # room A only -- no hall-wide leak
+        assert protocols._shout_targets(3) == {3, 4}       # room B only
+        assert protocols._shout_targets(5) == {5, 6}       # lobby chat skips in-room players
+    finally:
+        mh.CLIENTS.clear(); mh.CLIENTS.update(saved_clients)
+        mh.REGISTRY.sessions.clear(); mh.REGISTRY.sessions.update(saved_sessions)
+        mh.COMMUNITY.communities.clear(); mh.COMMUNITY.communities.update(saved_comms)
+    print("  F5 shout room scoping: OK")
+
+
 # --- F2/F7: connection accounting primitives -----------------------------------------
 def test_connection_caps():
     old = limits.MAX_CONNECTIONS
@@ -260,6 +288,7 @@ def main():
     test_community_cap_and_reap()
     test_shout_rate_limit()
     test_shout_broadcast_gate()
+    test_shout_room_scoping()
     test_connection_caps()
     test_bound_list()
     print(">>> LIMITS OK")

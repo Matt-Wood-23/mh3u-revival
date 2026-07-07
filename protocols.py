@@ -663,20 +663,30 @@ def _shout_text(raw):
 
 
 def _shout_targets(sender):
-    """Live pids to deliver a shout to: everyone who shares a gathering (room session or
-    hall/lobby community) with the sender, minus the sender. MH3U's UserMessage layout does
-    NOT match NintendoClients' (the decoded recipient comes out garbage), so we route by the
-    SENDER's memberships, not the message's recipient field. Fallback (beta = one hall/room
-    per server): every other connected client."""
+    """Live pids to deliver a shout to: the sender's MOST-SPECIFIC gathering. MH3U's
+    UserMessage layout does NOT match NintendoClients' (the decoded recipient comes out
+    garbage), so we route by the SENDER's memberships, not the message's recipient field.
+
+    Precedence matters: hall/lobby community membership PERSISTS while inside a room, so
+    unioning room + hall (the pre-2026-07-06 behavior) fanned every room shout out to the
+    whole hall = chat leaked across rooms. Rules now:
+      - sender inside a room session  -> that room's participants only
+      - sender in the hall/lobby only -> hall members who are NOT inside a room themselves
+        (symmetric isolation: lobby chat doesn't pierce into rooms either)
+    Fallback (sender in no tracked gathering): every connected client (beta default)."""
     live = set(matchmaking_handlers.CLIENTS.keys())
     pids = set()
     try:
+        in_room = set()                # every pid currently inside ANY room session
         for s in matchmaking_handlers.REGISTRY.sessions.values():
+            in_room |= set(s.participants)
             if sender in s.participants:
                 pids |= set(s.participants)
-        for c in matchmaking_handlers.COMMUNITY.communities.values():
-            if sender in getattr(c, "participants", ()):
-                pids |= set(c.participants)
+        if not pids:                   # not in a room -> hall/lobby scope
+            for c in matchmaking_handlers.COMMUNITY.communities.values():
+                if sender in getattr(c, "participants", ()):
+                    pids |= set(c.participants)
+            pids -= in_room
     except Exception as e:
         logger.info("  -> SHOUT target-resolve error: %s", e)
     pids &= live

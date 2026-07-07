@@ -17,3 +17,9 @@ guestram.manifest.json
 
 # Runtime logs — contain live IPs/PIDs/session data, never source
 *.log
+
+# Launcher build artifacts (PyInstaller) — the frozen exe/version.txt ride on the
+# GitHub release, not the repo. Only launcher.py / build_launcher.py / README.md are source.
+dist/launcher/build/
+dist/launcher/dist/
+dist/launcher/*.spec

@@ -1,8 +1,10 @@
-# `dist/` — player setup scripts
+# `dist/` — player setup pieces
 
 The files that prepare a player's Cemu for MH3U Revival: two small, dependency-free Python
-scripts and the one-click bundle launcher (`PLAY MH3U ONLINE.bat`). They ship **no Nintendo
-data** — see the note at the bottom.
+scripts, plus the batch launcher here (`PLAY MH3U ONLINE.bat`) that now ships as the
+**antivirus fallback** for joining. The primary entry point is the GUI launcher in
+[`launcher/`](launcher/) — `MH3U_Online.exe` — which does **JOIN and HOST** from one window.
+They ship **no Nintendo data** — see the note at the bottom.
 
 For the actual walkthroughs, see:
 
@@ -33,16 +35,18 @@ python make_account.py "<cemu_data>/mlc01/usr/save/system/act/80000001"
 
 Add `--player N` to pin a fixed PID (`1000000000+N`) instead of random — rarely needed.
 
-## `PLAY MH3U ONLINE.bat`
+## `PLAY MH3U ONLINE.bat` (ships as the antivirus fallback)
 
-The one-click launcher shipped inside the **MH3U Online Bundle** — the no-Python path for
-joiners. On first run it does in pure batch what the two scripts above do: mints a random
+The pure-batch join path. In the all-in-one bundle this file ships **renamed** to
+`If antivirus blocks the launcher - JOIN.bat` — insurance for anyone whose antivirus
+quarantines the unsigned `MH3U_Online.exe` (plain text can't be quarantined, and it needs no
+Python). It does the same JOIN setup the GUI launcher does: on first run it mints a random
 unique NEX identity (`account.dat`) and asks for the host's IP (saved to `mh3u_server.txt`),
-then starts Cemu. Later runs just launch Cemu, so once it's set up players can use the `.bat`
-or `Cemu_release.exe` directly. The dummy gate files come pre-made in the bundle, so it
-doesn't need `make_online_files.py`.
+then starts Cemu; later runs show the saved host with a 5-second window to change it. The dummy
+gate files come pre-made in the bundle, so it doesn't need `make_online_files.py`. (Hosting is
+launcher-only — the fallback bat covers joining.)
 
-This copy is the **canonical source**, kept byte-identical to the launcher packed in the
+This copy is the **canonical source**, kept byte-identical to the fallback bat packed in the
 distributed bundle — repack the bundle from this file if you change it.
 
 > **Maintainer gotcha — escape parens in `echo`.** Inside an `if (...)` block, a literal `(`

@@ -5,9 +5,10 @@ title MH3U Online
 
 rem ===========================================================================
 rem  MH3U Online launcher.  First run: mints a UNIQUE random NEX identity and
-rem  asks for the host's IP, then starts Cemu.  Later runs: just start Cemu
-rem  (the identity persists, so launching Cemu directly works too -- this .bat
-rem  is only required the FIRST time).  No Python, no admin, no extra installs.
+rem  asks for the host's IP, then starts Cemu.  Later runs: shows the saved
+rem  host and gives a 5-second window to press C and change it, then starts
+rem  Cemu (the identity persists, so launching Cemu directly works too).
+rem  No Python, no admin, no extra installs.
 rem ===========================================================================
 
 rem --- 0) friendly check: is a game dump present? (first-run guidance) --------
@@ -74,19 +75,33 @@ if defined MAKEACCT (
     echo  [MH3U Online] Identity ready ^(NEX PID !PID!^).
 )
 
-rem --- 2) one-time: ask for the host's IP if it's still the placeholder ------
+rem --- 2) host IP: first run asks; later runs get a 5s window to change it ----
+rem  (The prompt used to appear ONLY while the file still held the placeholder,
+rem  so after the first run the only way to switch hosts was hand-editing
+rem  portable\mh3u_server.txt. Now every launch shows the saved host and gives
+rem  a 5-second CHANGE window; a timeout / redirected stdin just continues.)
+rem  goto-based so the interactive prompts stay out of parenthesised blocks.
 set "SRV="
 if exist "%SRVFILE%" set /p SRV=<"%SRVFILE%"
 if "!SRV!"=="" set "SRV=%PLACEHOLDER%"
-if "!SRV!"=="%PLACEHOLDER%" (
-    echo(
-    echo  [MH3U Online] Enter the HOST'S IP address.
-    echo  Ask the host -- it's their Tailscale 100.x address ^(or their LAN/public IP
-    echo  if you're not using Tailscale^).
-    set /p SRV=  Host IP:
-    > "%SRVFILE%" echo !SRV!
-    echo  [MH3U Online] Saved host = !SRV!
-)
+if "!SRV!"=="%PLACEHOLDER%" goto askip
+
+echo(
+echo  [MH3U Online] Saved host = !SRV!
+choice /c CG /n /t 5 /d G /m "  Press C to CHANGE the host IP (starting in 5s)..."
+if "!errorlevel!"=="1" goto newip
+goto ipdone
+
+:askip
+echo(
+echo  [MH3U Online] Enter the HOST'S IP address.
+echo  Ask the host -- it's their Tailscale 100.x address ^(or their LAN/public IP
+echo  if you're not using Tailscale^).
+:newip
+set /p SRV=  Host IP:
+> "%SRVFILE%" echo !SRV!
+echo  [MH3U Online] Saved host = !SRV!
+:ipdone
 
 rem --- 3) launch Cemu (skip with MH3U_NOLAUNCH=1 for setup-only/testing) -----
 echo(

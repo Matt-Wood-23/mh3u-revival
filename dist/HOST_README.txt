@@ -1,51 +1,19 @@
 ============================================================
- MH3U ONLINE - HOST ADD-ON
+ MH3U ONLINE - HOST ADD-ON  (retired -- hosting is now built in)
 ============================================================
 
-This little add-on lets YOU host a game for your friends. It's just the
-server (server.exe) plus a one-click launcher (HOST_MH3U.bat). No Python,
-no installs - server.exe is fully self-contained.
+Hosting no longer needs a separate add-on. It is built into the all-in-one
+bundle: open MH3U_Online.exe and use the HOST tab.
 
-You still play through the normal MH3U Online bundle; this only adds the
-"be the host" part.
+  1. MH3U_Online.exe  ->  HOST tab
+  2. Pick the IP your friends will use (it auto-detects your Radmin 26.x /
+     Tailscale 100.x / LAN address), then click "Start Server".
+  3. Give friends that IP. To host AND play on the same PC, click
+     "Host + Play (127.0.0.1)".
 
-------------------------------------------------------------
- TO HOST A GAME
-------------------------------------------------------------
+server.exe already ships inside the bundle, so there is nothing extra to
+download or drop in. See docs/HOSTING.md for the full guide (including the
+from-source path for advanced users who want to run/modify the Python server).
 
-1. Put HOST_MH3U.bat and server.exe together in one folder. Easiest spot:
-   right inside your MH3U Online bundle folder (next to PLAY MH3U ONLINE.bat).
-
-2. Make sure your overlay VPN is running and signed in - Tailscale or Radmin
-   VPN (the recommended way for friends to reach you). LAN/public IP also
-   works if you know what you're doing.
-
-3. Double-click  HOST_MH3U.bat
-   - It detects your Radmin VPN (26.x) and/or Tailscale (100.x) address and
-     asks which IP friends should use. Press Enter to accept the suggested
-     one, or type a different IP (public / port-forward / LAN).
-   - KEEP THIS WINDOW OPEN while you play. Closing it stops the server.
-
-4. Now start the game yourself: run  PLAY MH3U ONLINE.bat  (from the bundle).
-   When it asks for the host IP, type:  127.0.0.1
-   (you're on the same PC as the server, so loopback is correct).
-
-5. Tell your friends the IP from step 3. They run THEIR
-   PLAY MH3U ONLINE.bat and paste that IP when asked.
-
-------------------------------------------------------------
- NOTES
-------------------------------------------------------------
-
-* Windows / SmartScreen may flag server.exe as "unrecognized" - that's
-  normal for a custom unsigned build (same as the Cemu build). It is the
-  same server you can see the source for at:
-  https://github.com/Matt-Wood-23/mh3u-revival
-
-* First launch can take a second or two while it unpacks itself - that's
-  expected for a single-file program.
-
-* Friends having trouble connecting? 99% of the time it's the overlay VPN
-  link, not the server. On Tailscale, have them run  tailscale ping <your
-  100.x IP>  and confirm "pong"; on Radmin, have them  ping <your 26.x IP>.
-  Everyone must be on the SAME overlay as the host.
+(This file is kept only as a pointer for anyone who still has the old,
+separate "MH3U Host Add-on" zip from before the bundles were merged.)

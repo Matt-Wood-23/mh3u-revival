@@ -5,25 +5,35 @@ A ready-to-run patched Cemu for playing MH3U online on a self-hosted server. No
 Python, no account to create, no Nintendo files, and online is ALREADY switched
 on for you. You bring only your own MH3U game dump.
 
-You connect to the host over an overlay VPN - Tailscale or Radmin - a free app that
-tunnels straight to the host's PC over the internet and sidesteps all router/NAT
-setup. The host does NOT need to port-forward for this.
+Everything runs from ONE app: MH3U_Online.exe. Double-click it and pick JOIN
+(play on someone's server) or HOST (run a server for your friends). It is now
+all-in-one - the server is built in, so there is no separate "Host Add-on" to
+download anymore.
+
+You connect over an overlay VPN - Tailscale or Radmin - a free app that tunnels
+straight to the host's PC over the internet and sidesteps all router/NAT setup.
+The host does NOT need to port-forward for this.
 
 
-HEADS UP: WINDOWS WILL WARN ABOUT Cemu_release.exe
---------------------------------------------------
-Cemu_release.exe is a custom build of Cemu (the "mh3u-revival" fork), so it isn't
-signed - Windows Defender / SmartScreen will call it "unrecognized" or "not commonly
-downloaded." That's normal for any unsigned emulator build, not malware. To run it:
-"More info" -> "Run anyway" (and/or allow it in Defender). Want to check it yourself?
-The full source fork is linked from the project page:
+HEADS UP: WINDOWS WILL WARN ABOUT THE .EXE FILES
+------------------------------------------------
+Both MH3U_Online.exe and Cemu_release.exe are custom, unsigned builds (Cemu is the
+"mh3u-revival" fork), so Windows Defender / SmartScreen will call them
+"unrecognized" or "not commonly downloaded." That's normal for any unsigned tool,
+not malware. To run them: "More info" -> "Run anyway" (and/or allow them in
+Defender). Want to check them yourself? The full source is on the project page:
     https://github.com/Matt-Wood-23/mh3u-revival
+
+IF ANTIVIRUS BLOCKS OR DELETES MH3U_Online.exe: use the backup
+"If antivirus blocks the launcher - JOIN.bat" instead. It's plain text (nothing to
+quarantine), does the exact same JOIN setup, and needs no Python. (Hosting still
+needs the launcher's HOST tab.)
 
 
 STEPS
 -----
-1. Unzip this whole folder anywhere (e.g. C:\MH3U_Online). Keep "PLAY MH3U
-   ONLINE.bat", "Cemu_release.exe", "resources", "gameProfiles" and "portable"
+1. Unzip this whole folder anywhere (e.g. C:\MH3U_Online). Keep MH3U_Online.exe,
+   Cemu_release.exe, server.exe, "resources", "gameProfiles" and "portable"
    together.
 
 2. Install Tailscale (https://tailscale.com/download) and join the HOST's tailnet:
@@ -59,7 +69,7 @@ STEPS
        below. JP also needs extra system files - see the JP note in TROUBLESHOOTING
        below.)
 
-   NOTE: the launcher may print "No MH3U game found" - it only checks the copy-in
+   NOTE: the launcher may say "No MH3U game found" - it only checks the copy-in
    location (b). If you used a Game Path (a) and Cemu lists the game, ignore that line.
 
    Bringing a save from another Cemu? This bundle is a FRESH portable Cemu, so your
@@ -70,25 +80,40 @@ STEPS
    start? Just play - a new hunter is made automatically. NOTE: use a save made for
    YOUR game's own region (a US save on the US game, EU on EU).
 
-4. Double-click "PLAY MH3U ONLINE.bat".
-   The FIRST time, it:
-     - creates your own unique online identity (a random NEX PID - nobody else
-       gets the same one), and
-     - asks for the HOST'S IP (paste the host's Tailscale 100.x IP from step 2).
-   Then it launches Cemu. After this first run your identity is saved for good -
-   you can launch with the .bat OR Cemu_release.exe directly; both work online.
+4. Double-click MH3U_Online.exe and choose:
+
+   JOIN (you're playing on someone else's server):
+     - On the Join tab, paste the HOST'S IP (their Tailscale 100.x or Radmin 26.x
+       from step 2) and click Save + Play.
+     - The first time, the launcher quietly creates your own unique online identity
+       (a random NEX PID - nobody else gets the same one) and saves the host IP, then
+       starts Cemu. You can change the host IP any time - the field is always editable.
+
+   HOST (you're running the server for friends):
+     - On the Host tab, pick which IP your friends will connect to (it auto-suggests
+       your Radmin / Tailscale / LAN address) and click Start Server. Give that IP to
+       your friends. Use "Host + Play" to start the server AND join it yourself at
+       127.0.0.1.
 
 5. Online is ALREADY enabled in this bundle - you do NOT need to touch Cemu's
    account settings. (It comes pre-set to Network Service = Nintendo with a valid
    online account, so the green "online" checkmark is there from the start.) Only if
    that checkmark is ever MISSING (it says "not linked to a NNID or PNID"): CLOSE Cemu
-   and run "PLAY MH3U ONLINE.bat" again - it re-mints a valid identity and the check
-   goes green. (Don't bother setting Network Service by hand: it's already on Nintendo,
-   and grayed-out until the account is valid anyway.)
+   and run MH3U_Online.exe again -> Join tab -> Save + Play; it re-mints a valid
+   identity and the check goes green. (Don't bother setting Network Service by hand:
+   it's already on Nintendo, and grayed-out until the account is valid anyway.)
 
 6. Make sure the HOST has their server running and is sitting in a room. Then
    launch MH3U -> main menu -> Network Mode -> enter the SAME Gathering Hall as
    the host -> Enter a Room -> join the host's room.
+
+
+UPDATES
+-------
+MH3U_Online.exe checks GitHub for new bundle releases on startup and shows an
+"update available" button when there's a newer version. Click it and the launcher
+downloads + applies the update in place (your account, save, and game dump are never
+touched), then restarts itself. No manual re-download needed.
 
 
 TROUBLESHOOTING
@@ -102,6 +127,9 @@ TROUBLESHOOTING
   overrides any Allow rule - delete it), then allow Cemu on BOTH Private and Public
   profiles (VPN adapters like RadminVPN often count as Public). UPnP/your router is
   NOT involved when you're on a VPN.
+- MH3U_Online.exe won't open / got deleted by antivirus = use the backup
+  "If antivirus blocks the launcher - JOIN.bat" for joining. To host from a machine
+  where the launcher is blocked, add an exclusion for MH3U_Online.exe in Defender.
 - Launcher says "No MH3U game found" but Cemu lists the game = you used a Game Path
   (step 3a). That message only checks the copy-in folder; ignore it.
 - Game not in Cemu's list after "Add games directory" = you probably picked a [Game]
@@ -113,8 +141,9 @@ TROUBLESHOOTING
 - Host can't see your device on their tailnet = your client is on your OWN tailnet.
   Switch to the host's tailnet in the Tailscale UI, then LOG OUT and back in on the
   app to re-bind. Accepting the invite alone doesn't do it.
-- Wrong host IP? Edit portable\mh3u_server.txt (one line, just the IP) and
-  relaunch. The .bat only asks the first time.
+- Wrong host IP? Just reopen MH3U_Online.exe -> Join tab, type the new IP, Save + Play.
+  (Using the fallback .bat instead? It shows the saved host and gives a 5-second window
+  to press C and change it.)
 - "Network Service" options look grayed out = NORMAL, not a problem. Cemu only lets you
   CHANGE that setting when no game is running AND the green online check is present - but
   the bundle already ships set to Nintendo, so it works fine while grayed. (Opening
@@ -122,8 +151,8 @@ TROUBLESHOOTING
   the GREEN CHECK next to "Online play requirements", not whether the radio is clickable.
   If that check is RED, the status line under it names what's missing. If it says "not
   linked to a NNID or PNID", your account is a blank offline one (Cemu made it before you
-  ran the launcher) - CLOSE Cemu and run "PLAY MH3U ONLINE.bat" again; it swaps in a valid
-  online identity and the check goes green.
+  ran the launcher) - CLOSE Cemu and run MH3U_Online.exe again -> Join -> Save + Play; it
+  swaps in a valid online identity and the check goes green.
 - Game crashes entering Network Mode on an EU/PAL game = the known EUR-build bug, and
   THIS bundle already fixes it (the included Cemu + the host's server handle it). Still
   crashing? You're on an older bundle/Cemu - re-download the current one. (Separately, an
@@ -137,16 +166,15 @@ TROUBLESHOOTING
   "code" folder into portable\cafeLibs\). Naming your hunter? The JP keyboard shows
   on the GAMEPAD screen - hold Tab (or Ctrl+Tab) in Cemu to see it.
 - Windows blocked Cemu_release.exe? See "HEADS UP" above - "More info" -> "Run anyway".
-- Do NOT run "Launch with GDB stub" - just use the .bat / Cemu_release.exe.
+- Do NOT run "Launch with GDB stub" - just use the launcher / Cemu_release.exe.
 - Portable: all data lives in "portable". Delete the folder to remove everything.
 - No Nintendo files are included. otp/seeprom are zeros and the "certs" are
   4-byte empty stubs - they only satisfy Cemu's file-existence check, because the
   patched build sends the real connection to the host's server, not Nintendo.
 
 
-WANT TO BE THE HOST INSTEAD?
-----------------------------
-Grab the "MH3U Host Add-on" (server.exe + HOST_MH3U.bat) and drop it in this same
-folder. Double-click HOST_MH3U.bat - it shows the IP your friends type in, and runs
-the server (no Python needed). Then play normally with PLAY MH3U ONLINE.bat and enter
-127.0.0.1 as the host IP. Full details in the add-on's HOST_README.txt.
+HOSTING, IN ONE LINE
+--------------------
+Open MH3U_Online.exe -> Host tab -> Start Server, and tell your friends the IP it
+shows. That's it - server.exe is already in this folder, so there is nothing extra
+to install. To host and play on the same PC, use "Host + Play" (joins at 127.0.0.1).

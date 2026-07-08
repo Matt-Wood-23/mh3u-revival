@@ -911,17 +911,42 @@ def _run_gui(smoke=False):
             start_btn.configure(state="normal")
             stop_btn.configure(state="disabled")
 
+        def _kill_proc_tree(proc):
+            """server.exe is a PyInstaller *onefile*: the process we spawned is
+            the bootloader, which launches the REAL server as a child that binds
+            1223/1224/10025. terminate()/kill() on the parent alone orphans that
+            child and leaves the ports held -- so kill the whole tree. On Windows
+            taskkill /T walks the child tree; do it FIRST (before the parent dies,
+            or the child gets reparented and slips the /T)."""
+            if os.name == "nt":
+                try:
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        timeout=10)
+                except Exception:
+                    pass
+            else:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
         def stop_server():
             proc = proc_holder["proc"]
             if proc is None:
                 return
             hlog("[Host] Stopping server ...")
             try:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
+                _kill_proc_tree(proc)
             except Exception as e:
                 hlog(f"[Host] stop error: {e}")
 

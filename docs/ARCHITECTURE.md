@@ -59,7 +59,7 @@ There is **no account server and no registration**. A player's identity is a NEX
 auto-provisions any numeric PID it sees (`users.py:resolve`) and keys everything on it.
 
 - **PIDs are random and local.** Each player generates a unique random PID once
-  (`dist/make_account.py`, or the `PLAY MH3U ONLINE.bat` launcher in the MH3U Online Bundle).
+  (`dist/make_account.py`, or the `MH3U_Online.exe` launcher in the MH3U Online Bundle).
   Range `0x40000000–0x6fffffff`; within a 4-player room the collision chance is ~6e-9.
 - **Why random, not assigned.** The PID is baked client-side and the game roots its
   whole identity (and kerberos key derivation) in it, so the server *cannot* silently
@@ -239,5 +239,5 @@ investigation — the host explicitly does not run central infra for everyone).
 | `host_roster_free.py` | legacy pymem roster poke (pre-notification rejoin fix); off by default, co-located host only |
 | `reaper.py` | liveness reaper (ghost-population cleanup) |
 | `users.py` / `config.py` | PID resolution + kerberos derivation / RE'd credentials |
-| `dist/` | player-distribution: `PLAY MH3U ONLINE.bat` (mints/repairs identity + launches), `make_account.py`, `make_online_files.py`, `bundle_settings.xml` (pre-baked online gate) |
+| `dist/` | player-distribution: `MH3U_Online.exe` launcher (JOIN/HOST GUI) + `PLAY MH3U ONLINE.bat` antivirus fallback (both mint/repair identity + launch), `make_account.py`, `make_online_files.py`, `bundle_settings.xml` (pre-baked online gate) |
 | `tests/` | in-process, dump-free self-tests (auth / matchmaking / community) + `udp_probe_listen.py` reachability diagnostic |

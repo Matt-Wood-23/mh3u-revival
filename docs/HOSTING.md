@@ -7,18 +7,19 @@ is server-tunable — see `MH3U_HALL_MAX` in the env-var table).
 
 ## Two ways to host
 
-**Easiest — the Host Add-on (no Python, nothing to install).** Download the **MH3U Host Add-on**
-(`server.exe` + `HOST_MH3U.bat`) and drop both files in the **same folder as the MH3U Online
-Bundle** you play with. Then:
+**Easiest — the built-in Host tab (no Python, nothing extra to install).** Hosting is part of the
+same all-in-one **MH3U Online Bundle** you play with — `server.exe` already ships inside it. Then:
 
-1. Get your friends onto your **Tailscale** network (see [section 3](#3-make-the-server-reachable) — that part is the same either way).
-2. Double-click **`HOST_MH3U.bat`** — it auto-detects your Tailscale IP, prints the **address your
-   friends type in**, and runs the server. Leave that window open.
-3. Play normally: run **`PLAY MH3U ONLINE.bat`** and enter **`127.0.0.1`** as the host IP (you're
-   on the same PC as the server). Online is already enabled in the bundle.
+1. Get your friends onto your **Tailscale** or **Radmin** network (see
+   [section 3](#3-make-the-server-reachable) — that part is the same either way).
+2. Open **`MH3U_Online.exe`** → **Host** tab. Pick the IP your friends will use (it auto-detects
+   your Radmin `26.x` / Tailscale `100.x` / LAN address, or type any IP), then click **Start
+   Server**. It shows the **address your friends type in** and streams the server log — leave it
+   running.
+3. To play on the same PC, click **Host + Play (127.0.0.1)** — it starts the server *and* joins it
+   yourself at loopback. Online is already enabled in the bundle.
 
 That's the whole thing — `server.exe` is self-contained, so you can **skip the rest of this page**.
-(Details in the add-on's `HOST_README.txt`.)
 
 **From source (advanced).** If you'd rather run or modify the server in Python, the rest of this
 page is for you.
@@ -144,8 +145,9 @@ to your PC in the Radmin window — run the server with `MH3U_ADVERTISE=<that 26
 put the **same** `26.x` in their `mh3u_server.txt`. Confirm reachability first: a friend's
 `ping <your 26.x>` should reply. The server re-stamps each hunt's P2P endpoint to the Radmin plane,
 so hunts connect even though Cemu reports its raw public IP for the hole-punch — **verified live,
-including a cross-region JP↔US pair.** Note: the Host Add-on's `HOST_MH3U.bat` auto-detects your
-*Tailscale* IP specifically; on Radmin, run the server from source with `MH3U_ADVERTISE=<your 26.x>`.
+including a cross-region JP↔US pair.** The launcher's **Host** tab auto-detects your Radmin `26.x`
+address (as well as Tailscale/LAN), so just select it there and **Start Server** — no need to set
+`MH3U_ADVERTISE` by hand.
 
 > **Why an overlay:** it's private (no IP exposure), needs no router config, and works
 > behind CGNAT — which raw hole-punch and port-forwarding don't. See

@@ -12,6 +12,10 @@ public replacement service. I don't have the resources to host for everyone unfo
 Pretendo is already working on this too supposedly.
 You bring your own legal game dump; nothing from Nintendo is distributed.
 
+> 💬 **Community & LFG — [discord.gg/HTEWJDYgzJ](https://discord.gg/HTEWJDYgzJ)**
+> The semi-official Discord for the revival: find people to hunt with, look for a host / post
+> LFG, get setup help, and hear about updates. Come say hi.
+
 ---
 
 ## ⚠️ Legal / disclaimer
@@ -78,6 +82,10 @@ what you were doing, whether you were the host or a joiner, your reachability me
 (Tailscale / Radmin / LAN / public IP), and — if you're the host — the relevant server log
 lines.
 
+For quicker back-and-forth — or just to find people to hunt with — there's a community
+**[Discord](https://discord.gg/HTEWJDYgzJ)** too. Use the issue tracker for anything that needs
+a fix, though, so it doesn't get lost in chat.
+
 ---
 
 ## Get started
@@ -88,22 +96,26 @@ lines.
 - **How it works / design decisions** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 > **Tried an earlier build and got stuck on the online checkmark** — greyed-out *Network Service*,
-> or *"not linked to a NNID or PNID"*? **That's fixed.** Grab the current bundle and just run
-> `PLAY MH3U ONLINE.bat`; the launcher now sets up (or repairs) your online identity on launch, so
-> the green checkmark appears on its own — no Cemu account settings to touch.
+> or *"not linked to a NNID or PNID"*? **That's fixed.** Grab the current bundle and open
+> `MH3U_Online.exe` → **Join** → *Save + Play*; the launcher sets up (or repairs) your online
+> identity on launch, so the green checkmark appears on its own — no Cemu account settings to touch.
+
+Everything runs from **one app**: `MH3U_Online.exe`. Double-click it and pick **Join** (play on a
+friend's server) or **Host** (run one for your friends). It's **all-in-one** — the server is built
+right in, so there's no separate "Host Add-on" to download anymore.
 
 **Joining** is the easy path: grab the **MH3U Online Bundle** from the
 [Releases](https://github.com/Matt-Wood-23/mh3u-revival/releases) page — a ready-to-run patched
-Cemu with online pre-enabled. Add your own dump, double-click `PLAY MH3U ONLINE.bat`, enter the
-host's IP, play. See [docs/PLAYING.md](docs/PLAYING.md). **On Linux or a Steam Deck?** Grab the
-experimental **`MH3U_Online_Linux.zip`** instead — same flow with a bash launcher
-([docs/PLAYING.md § Linux](docs/PLAYING.md#linux--steam-deck-experimental)).
+Cemu with online pre-enabled. Add your own dump, double-click **`MH3U_Online.exe`**, click **Join**,
+enter the host's IP, and hit *Save + Play*. See [docs/PLAYING.md](docs/PLAYING.md). **On Linux or a
+Steam Deck?** Grab the experimental **`MH3U_Online_Linux.zip`** instead — same flow with a bash
+launcher ([docs/PLAYING.md § Linux](docs/PLAYING.md#linux--steam-deck-experimental)).
 
-**Hosting — no Python (easiest):** grab the **MH3U Host Add-on** (`server.exe` + `HOST_MH3U.bat`)
-from [Releases](https://github.com/Matt-Wood-23/mh3u-revival/releases) and drop both files next to
-the bundle you play with. Double-click `HOST_MH3U.bat` — it auto-detects your Tailscale IP, prints
-the address friends type in, and runs the self-contained server (nothing to install). Then play
-normally and enter `127.0.0.1` as the host IP. Full details in [docs/HOSTING.md](docs/HOSTING.md).
+**Hosting — no Python (easiest):** it's built into the same bundle. Open **`MH3U_Online.exe`** →
+**Host** tab → pick the IP your friends will use (it auto-detects your Radmin / Tailscale / LAN
+address) → **Start Server**, and give friends that IP. Use **Host + Play** to run the server *and*
+join it yourself. `server.exe` already ships in the bundle — nothing extra to download. Full
+details in [docs/HOSTING.md](docs/HOSTING.md).
 
 **Hosting — from source (advanced):** if you'd rather run or modify the server in Python:
 

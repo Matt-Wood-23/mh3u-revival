@@ -5,17 +5,21 @@ a ready-to-run patched Cemu with a one-click launcher. No Python, no account to 
 Nintendo files, and **online is already switched on for you**. You bring only your
 **own legal MH3U dump**.
 
-> **⚠️ Windows will warn you about `Cemu_release.exe`.** It's a **custom build of Cemu**
-> (the `mh3u-revival` Cemu fork), so it isn't signed and Windows Defender / SmartScreen will
-> flag it as "unrecognized" or "not commonly downloaded" — that's expected for any unsigned
-> emulator build, not a sign of malware. If you'd rather build it yourself or read exactly
-> what's changed, the full source fork is linked from the
-> [project README](https://github.com/Matt-Wood-23/mh3u-revival). To run the provided build:
-> *More info → Run anyway* (and/or allow it in Defender).
+> **⚠️ Windows will warn you about the `.exe` files.** Both `MH3U_Online.exe` and
+> `Cemu_release.exe` are **custom, unsigned builds** (`Cemu_release.exe` is the `mh3u-revival`
+> Cemu fork), so Windows Defender / SmartScreen flags them as "unrecognized" or "not commonly
+> downloaded" — expected for any unsigned tool, not a sign of malware. To run them:
+> *More info → Run anyway* (and/or allow them in Defender). If you'd rather build them yourself
+> or read exactly what's changed, the source is linked from the
+> [project README](https://github.com/Matt-Wood-23/mh3u-revival).
+>
+> **If antivirus outright deletes `MH3U_Online.exe`,** use the included
+> `If antivirus blocks the launcher - JOIN.bat` instead — it's plain text (nothing to
+> quarantine) and does the same **Join** setup. (Hosting still needs the launcher.)
 
 ## Steps
-1. **Unzip the bundle** anywhere (e.g. `C:\MH3U_Online`). Keep `PLAY MH3U ONLINE.bat`,
-   `Cemu_release.exe`, `resources`, `gameProfiles`, and `portable` together.
+1. **Unzip the bundle** anywhere (e.g. `C:\MH3U_Online`). Keep `MH3U_Online.exe`,
+   `Cemu_release.exe`, `server.exe`, `resources`, `gameProfiles`, and `portable` together.
 
 2. **Join the host's Tailscale network** ([download](https://tailscale.com/download)) so your
    PC can reach theirs over the internet, with no router setup: install, sign in, accept the
@@ -62,27 +66,28 @@ Nintendo files, and **online is already switched on for you**. You bring only yo
    > the dump in step 3 is the game, not your save.) The save's **region must match the game's**
    > region — see the Network-Mode crash note in Troubleshooting.
 
-4. **Double-click `PLAY MH3U ONLINE.bat`.** The first time, it:
+4. **Double-click `MH3U_Online.exe`, then click *Join*.** Paste the **host's IP** (the overlay
+   IP from step 2) and hit **Save + Play**. The first time, the launcher:
    - creates your own **unique online identity** (a random NEX PID — nobody else gets the
      same one), and
-   - asks for the **host's IP** (paste the overlay IP from step 2).
+   - saves the host's IP and launches Cemu.
 
-   Then it launches Cemu. After this first run your identity is saved permanently — you can
-   launch with the `.bat` *or* `Cemu_release.exe` directly; both work online. (Always using
-   the `.bat` is fine too.)
+   After this first run your identity is saved permanently — you can launch from the launcher
+   *or* by running `Cemu_release.exe` directly; both work online. The host-IP field stays
+   editable, so you can switch hosts any time.
 
-   > **Use the `.bat` for your first launch** so your unique identity is set before Cemu
+   > **Use the launcher for your first launch** so your unique identity is set before Cemu
    > makes its own. Opened `Cemu_release.exe` first by mistake? No harm — Cemu creates a
-   > blank *offline* account, and the next time you run the `.bat` it detects that and
-   > replaces it with your real online identity automatically (your old blank one is kept
-   > as `account.dat.offline.bak`).
+   > blank *offline* account, and the next time you run the launcher (*Join → Save + Play*) it
+   > detects that and replaces it with your real online identity automatically (your old blank
+   > one is kept as `account.dat.offline.bak`).
 
 5. **Online is already on — you can skip the old account step.** The bundle ships pre-set to
    **Network Service = Nintendo** with a valid online account and the dummy gate files, so the
    green online checkmark is there from first launch — you don't touch Cemu's account settings.
    *Only* if that checkmark is ever **missing** (it reads *"not linked to a NNID or PNID"*):
-   close Cemu and run **`PLAY MH3U ONLINE.bat`** again — it re-mints a valid identity and the
-   check goes green. (Don't try to set *Network Service* by hand: it's already on Nintendo, and
+   close Cemu and run **`MH3U_Online.exe`** again → *Join* → *Save + Play* — it re-mints a valid
+   identity and the check goes green. (Don't try to set *Network Service* by hand: it's already on Nintendo, and
    it's greyed-out until the account is valid anyway — see Troubleshooting.)
 
 6. **Play:** make sure the host is running their server and sitting in a room, then launch
@@ -105,8 +110,8 @@ the JP version's extra setup.
 - **"Connected to the internet" then back to the village** = can't reach the host's server.
   99% of the time it's Tailscale — confirm you can reach their `100.x` IP (`tailscale ping`
   → "pong"; step 2).
-- **Wrong host IP?** Edit `portable\mh3u_server.txt` (one line, just the IP) and relaunch.
-  The `.bat` only asks the first time.
+- **Wrong host IP?** Reopen `MH3U_Online.exe` → *Join*, type the new IP, and hit *Save + Play*.
+  (Using the fallback `.bat`? It shows the saved host and gives a 5-second window to change it.)
 - **Game not in Cemu's list** after *Add games directory* = you picked a `[Game]` folder
   itself. Pick its **parent** folder instead (the one that contains it).
 - **The "Network Service" options look grayed out** = that's **normal, not a problem.** Cemu
@@ -118,13 +123,13 @@ the JP version's extra setup.
   that check is **red**, read the status line under it — it names the missing piece
   (OTP/SEEPROM, certificates, or account). If it says **"not linked to a NNID or PNID,"** your
   `account.dat` is a blank offline one (Cemu made it before you ran the launcher) — **close Cemu
-  and run `PLAY MH3U ONLINE.bat` again**; it replaces the blank account with a valid online
-  identity, and the check goes green.
+  and run `MH3U_Online.exe` again → *Join* → *Save + Play***; it replaces the blank account with a
+  valid online identity, and the check goes green.
 - **Game crashes the moment you enter Network Mode** = a save whose region/language doesn't
   match the game (e.g. an **EU/Spanish** save on a **US** game). The save's `system` +
   `phraseX` files carry the region; mixing them crashes online. Fix: use a save made on the
   matching region, or make a fresh character in this game's region.
-- **Don't** use Cemu's "Launch with GDB stub" — just the `.bat` or `Cemu_release.exe`.
+- **Don't** use Cemu's "Launch with GDB stub" — just the launcher or `Cemu_release.exe`.
 
 ## Setting up by hand (no bundle)
 If you have the patched Cemu but not the bundle, do the equivalent once:
@@ -143,7 +148,7 @@ against the wrong `act/80000001` folder.
 A community-built **Linux bundle** exists — `MH3U_Online_Linux.zip` on the
 [Releases](https://github.com/Matt-Wood-23/mh3u-revival/releases) page, contributed by
 **jM5557**. It's the same patched Cemu fork built as a Linux **AppImage**, with
-`SETUP-ONLINE.sh` replacing `PLAY MH3U ONLINE.bat` (same identity minting, same host-IP
+`SETUP-ONLINE.sh` as the Linux join launcher (same identity minting, same host-IP
 prompt) and the same pre-configured `portable/` folder. Works on x86-64 Linux and
 **SteamOS / Steam Deck**.
 

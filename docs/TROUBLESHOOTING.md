@@ -166,7 +166,7 @@ current.)
 
 The host is running a **pre-v0.1.5 server**. The game waits for a reply to each shout
 before letting you send another, and older servers never replied. Host updates their
-Host Add-on (or `git pull`), done.
+bundle (or `git pull`), done.
 
 ---
 

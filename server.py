@@ -15,6 +15,7 @@ end-to-end; the account-server token is handled client-side by the Cemu fork.
 import os
 import sys
 import secrets
+import time
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -36,6 +37,7 @@ import protocols
 import reaper
 import limits
 import natcheck
+import matchmaking_handlers
 
 def _log_dir():
     # Frozen (PyInstaller onefile): sys.executable is the real .exe path (the bundle
@@ -280,6 +282,44 @@ def _fatal_bind(port, name, exc):
     raise SystemExit(1)
 
 
+# ---------------------------------------------------------------------------
+# Periodic status heartbeat.
+#
+# A quiet server otherwise logs nothing for hours, which makes the rotating
+# server.log useless for a host asking "is it alive / is anyone on?". Emit one
+# compact line every MH3U_STATUS_INTERVAL seconds (0 disables). Read-only: it
+# only counts the live registries, never mutates game state.
+# ---------------------------------------------------------------------------
+STATUS_INTERVAL = limits._int_env("MH3U_STATUS_INTERVAL", 60)
+_START_TIME = time.monotonic()
+
+
+def _fmt_uptime(secs):
+    secs = int(secs)
+    h, rem = divmod(secs, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}h{m:02d}m"
+    if m:
+        return f"{m}m{s:02d}s"
+    return f"{s}s"
+
+
+async def status_task():
+    if STATUS_INTERVAL <= 0:
+        return
+    while True:
+        await asyncio.sleep(STATUS_INTERVAL)
+        try:
+            players = len(matchmaking_handlers.CLIENTS)
+            rooms = len(matchmaking_handlers.REGISTRY.sessions)
+            halls = len(matchmaking_handlers.COMMUNITY.communities)
+        except Exception:
+            continue
+        logger.info("STATUS players=%d rooms=%d halls=%d uptime=%s",
+                    players, rooms, halls, _fmt_uptime(time.monotonic() - _START_TIME))
+
+
 async def main():
     s = build_settings()
     reaper.install_rx_stamp()   # stamp last-inbound time on every PRUDP packet (before serving)
@@ -312,6 +352,7 @@ async def main():
         await natcheck.start(config.HOST)
         _supervise(protocols.notify_trigger_watcher, "notify-watcher")
         _supervise(reaper.reaper_task, "reaper", respawn=True)
+        _supervise(status_task, "status", respawn=True)
         try:
             await aioconsole.ainput("")
         except (EOFError, RuntimeError):

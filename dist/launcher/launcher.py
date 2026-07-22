@@ -353,9 +353,12 @@ def detect_local_ip():
 
 def host_ip_choices():
     """Return an ordered list of (label, ip) host-IP options, preselect priority
-    matching the .bat: Radmin > Tailscale > LAN > loopback. Radmin/Tailscale only
-    appear when detected. Always includes loopback + LAN so nothing is silently
-    picked."""
+    matching the .bat: Radmin > Tailscale > LAN. Radmin/Tailscale only appear
+    when detected. Loopback is NOT offered as a normal choice — advertising
+    127.0.0.1 only works for two Cemu instances on the same PC and breaks P2P
+    for friends (the server publishes loopback as your peer address). It's kept
+    only as a last-resort fallback so the picker is never empty; users who want
+    a specific address can still type it in the override box."""
     choices = []
     rv = detect_radmin_ip()
     ts = detect_tailscale_ip()
@@ -366,7 +369,9 @@ def host_ip_choices():
         choices.append((f"Tailscale — {ts}", ts))
     if lan and lan != "127.0.0.1":
         choices.append((f"LAN — {lan}", lan))
-    choices.append(("This PC only — 127.0.0.1", "127.0.0.1"))
+    if not choices:
+        # No routable address detected — degenerate fallback (same-PC only).
+        choices.append(("This PC only — 127.0.0.1", "127.0.0.1"))
     return choices
 
 
@@ -846,7 +851,7 @@ def _run_gui(smoke=False):
         start_btn.pack(side="left")
         stop_btn = ttk.Button(btnrow, text="Stop Server", state="disabled")
         stop_btn.pack(side="left", padx=6)
-        hostplay_btn = ttk.Button(btnrow, text="Host + Play (127.0.0.1)")
+        hostplay_btn = ttk.Button(btnrow, text="Host + Play")
         hostplay_btn.pack(side="left", padx=6)
 
         host_log = scrolledtext.ScrolledText(host, height=12, wrap="word", state="disabled")
@@ -951,8 +956,16 @@ def _run_gui(smoke=False):
                 hlog(f"[Host] stop error: {e}")
 
         def host_and_play():
-            start_server("127.0.0.1")
-            run_join_flow(ROOT_DIR, "127.0.0.1", launch=True,
+            # Use the SAME picked IP for advertise and for our own Cemu's connect.
+            # They must match: the server publishes each peer's reflexive address
+            # from how they connected, so if we host + play over loopback it hands
+            # 127.0.0.1 to friends and nobody can reach us. Connecting over the
+            # chosen plane (Radmin/Tailscale/LAN) makes the published address
+            # reachable — and works for solo too (you reach your own overlay/LAN
+            # IP locally, no P2P peers to publish to).
+            ip = chosen_ip()
+            start_server(ip)
+            run_join_flow(ROOT_DIR, ip, launch=True,
                           log=lambda s: app.after(0, hlog, s))
 
         start_btn.configure(command=lambda: start_server())

@@ -567,6 +567,12 @@ def write_self_replace_bat(root, launcher_name):
         f'tasklist /FI "IMAGENAME eq {old}" /NH 2>nul | find /I "{old}" >nul && goto wait\r\n'
         f'del /q "{old}" >nul 2>nul\r\n'
         f'ren "{new}" "{old}" >nul 2>nul\r\n'
+        # Let Defender finish its on-write scan of the just-renamed exe before we
+        # launch it. A freshly-written PyInstaller ONEFILE exe that runs instantly
+        # can lose the _MEI python3xx.dll extraction race to the AV first-run scan
+        # and pop "Failed to load Python DLL ... LoadLibrary: module not found".
+        # A short settle makes the relaunch reliable (a second launch always worked).
+        "ping -n 4 127.0.0.1 >nul\r\n"
         f'start "" "{old}"\r\n'
         '(goto) 2>nul & del "%~f0"\r\n'
     )

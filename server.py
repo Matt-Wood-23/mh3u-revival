@@ -16,6 +16,7 @@ import os
 import sys
 import secrets
 import logging
+from logging.handlers import RotatingFileHandler
 
 # Make the cloned NintendoClients importable, plus this dir for local modules.
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -24,6 +25,7 @@ sys.path.insert(0, _HERE)
 
 import asyncio
 import concurrent.futures
+import contextlib
 import aioconsole
 
 from nintendo.nex import rmc, authentication, common, settings
@@ -35,12 +37,57 @@ import reaper
 import limits
 import natcheck
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
+def _log_dir():
+    # Frozen (PyInstaller onefile): sys.executable is the real .exe path (the bundle
+    # root), NOT the ephemeral _MEIxxx extraction dir that __file__ lives in. Writing
+    # the log next to the exe keeps it with the bundle. Non-frozen: this script's dir.
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return _HERE
+
+
+def _build_log_handlers():
+    """Console (stderr) + a size-capped rotating file.
+
+    The console handler stays because the launcher's Host tab streams stdout/stderr
+    live into its log view. The rotating file gives a DURABLE, bounded on-disk record
+    (the GUI stream is ephemeral, and a shell redirect grows without limit) so a long
+    unattended session can't fill the host's disk. Tunables (env):
+      MH3U_LOG_FILE  - filename (or abs path); "" disables the file (console only)
+      MH3U_LOG_MAX_MB / MH3U_LOG_BACKUPS - size cap per file and how many to keep
+    """
+    fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s", "%H:%M:%S")
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+    handlers = [console]
+    log_name = os.environ.get("MH3U_LOG_FILE", "server.log")
+    if not log_name:
+        return handlers, None
+    try:
+        max_mb = float(os.environ.get("MH3U_LOG_MAX_MB", "5"))
+        backups = int(os.environ.get("MH3U_LOG_BACKUPS", "5"))
+    except (ValueError, TypeError):
+        max_mb, backups = 5.0, 5
+    path = log_name if os.path.isabs(log_name) else os.path.join(_log_dir(), log_name)
+    try:
+        fileh = RotatingFileHandler(path, maxBytes=int(max_mb * 1024 * 1024),
+                                    backupCount=backups, encoding="utf-8")
+    except OSError as e:
+        # Read-only dir / locked file: keep running on console alone rather than crash.
+        print("WARNING: could not open log file %r (%s) - logging to console only"
+              % (path, e), file=sys.stderr)
+        return handlers, None
+    fileh.setFormatter(fmt)
+    handlers.append(fileh)
+    return handlers, path
+
+
+_log_handlers, _log_path = _build_log_handlers()
+logging.basicConfig(level=logging.INFO, handlers=_log_handlers)
 logger = logging.getLogger("mh3u.server")
+if _log_path:
+    logger.info("logging to %s (rotating: %s MB x %s backups)", _log_path,
+                os.environ.get("MH3U_LOG_MAX_MB", "5"), os.environ.get("MH3U_LOG_BACKUPS", "5"))
 
 # Kerberos key derivation is ~65k rounds of MD5 — CPU-bound pure-Python, so it holds the GIL.
 # Run it on a SINGLE dedicated worker thread (not asyncio.to_thread's default ~32-thread pool):
@@ -169,6 +216,70 @@ def kerberos_client_ticket(session_key, target_pid, internal):
     return t
 
 
+# ---------------------------------------------------------------------------
+# Background-task supervision.
+#
+# The reaper and the notify-file watcher run as detached background tasks. A
+# plain asyncio.create_task() that isn't awaited is fire-and-forget: if its
+# coroutine raises, the task just vanishes (asyncio emits only an easily-missed
+# "exception was never retrieved" warning). For the reaper that's a real hazard
+# — a crash in its sweep loop would SILENTLY disable ghost cleanup for the rest
+# of the session, degrading back to the ~50-minute PRUDP resend timeout the
+# reaper exists to avoid. So we retain the task handles (this also stops the GC
+# from collecting a task mid-flight) and watch them: log loudly on unexpected
+# death, and respawn critical tasks a bounded number of times so a persistent
+# bug can't spin-loop forever.
+# ---------------------------------------------------------------------------
+_BG_TASKS = set()
+_RESPAWN_LIMIT = 5          # total runs of a respawnable task before giving up
+_RESPAWN_BACKOFF = 10.0     # seconds before respawn, multiplied by the attempt number
+
+
+def _supervise(coro_factory, name, *, respawn=False, _attempt=0):
+    """Launch coro_factory() as a supervised background task. On unexpected death
+    log it loudly; if respawn=True, relaunch (bounded, with backoff)."""
+    task = asyncio.create_task(coro_factory())
+    _BG_TASKS.add(task)
+
+    def _done(t):
+        _BG_TASKS.discard(t)
+        if t.cancelled():
+            return   # normal shutdown — stay quiet
+        exc = t.exception()
+        if exc is None:
+            logger.info("background task %r exited", name)
+            return
+        logger.error("background task %r DIED: %r", name, exc, exc_info=exc)
+        if not respawn:
+            return
+        if _attempt + 1 < _RESPAWN_LIMIT:
+            delay = _RESPAWN_BACKOFF * (_attempt + 1)
+            logger.error("  -> respawning %r in %.0fs (run %d/%d)",
+                         name, delay, _attempt + 2, _RESPAWN_LIMIT)
+            loop = asyncio.get_running_loop()
+            loop.call_later(delay,
+                            lambda: _supervise(coro_factory, name,
+                                               respawn=respawn, _attempt=_attempt + 1))
+        else:
+            logger.error("  -> %r has crashed %d times; giving up. The liveness reaper is now "
+                         "OFF: disconnected players ('ghosts') will linger until the ~50-minute "
+                         "PRUDP timeout. Restart the server to restore it.", name, _RESPAWN_LIMIT)
+
+    task.add_done_callback(_done)
+    return task
+
+
+def _fatal_bind(port, name, exc):
+    """Turn a port-already-in-use bind failure into a message a host can act on,
+    instead of dumping a raw asyncio/Winsock traceback, then exit non-zero."""
+    logger.error("Could not bind UDP %d (%s server): %s", port, name, exc)
+    logger.error("  That port is already in use - most likely another copy of this server is "
+                 "already running.")
+    logger.error("  Close it (or press \"Stop Server\" in the launcher), then start this one "
+                 "again.")
+    raise SystemExit(1)
+
+
 async def main():
     s = build_settings()
     reaper.install_rx_stamp()   # stamp last-inbound time on every PRUDP packet (before serving)
@@ -180,19 +291,33 @@ async def main():
     secure = protocols.secure_servers()
     server_key = users.derive_key(users.by_pid(config.SECURE_SERVER_PID))
 
-    async with rmc.serve(s, auth, config.HOST, config.AUTH_PORT):
-        async with rmc.serve(s, secure, config.HOST, config.SECURE_PORT, key=server_key):
-            logger.info("listening: auth=%s:%d  secure=%s:%d  (Ctrl-C / enter to stop)",
-                        config.HOST, config.AUTH_PORT, config.HOST, config.SECURE_PORT)
-            await natcheck.start(config.HOST)
-            asyncio.create_task(protocols.notify_trigger_watcher())
-            asyncio.create_task(reaper.reaper_task())
-            try:
-                await aioconsole.ainput("")
-            except (EOFError, RuntimeError):
-                # No interactive stdin (detached/background). Run until killed.
-                logger.info("no interactive stdin; running until terminated")
-                await asyncio.Event().wait()
+    async with contextlib.AsyncExitStack() as stack:
+        # Enter each server separately so a bind failure names the exact port.
+        # rmc.serve raises OSError (WinError 10048 on Windows) if the UDP port is
+        # already held — the common "started it twice" mistake. Catch it and print
+        # something actionable instead of a raw traceback.
+        try:
+            await stack.enter_async_context(
+                rmc.serve(s, auth, config.HOST, config.AUTH_PORT))
+        except OSError as e:
+            _fatal_bind(config.AUTH_PORT, "auth", e)
+        try:
+            await stack.enter_async_context(
+                rmc.serve(s, secure, config.HOST, config.SECURE_PORT, key=server_key))
+        except OSError as e:
+            _fatal_bind(config.SECURE_PORT, "secure", e)
+
+        logger.info("listening: auth=%s:%d  secure=%s:%d  (Ctrl-C / enter to stop)",
+                    config.HOST, config.AUTH_PORT, config.HOST, config.SECURE_PORT)
+        await natcheck.start(config.HOST)
+        _supervise(protocols.notify_trigger_watcher, "notify-watcher")
+        _supervise(reaper.reaper_task, "reaper", respawn=True)
+        try:
+            await aioconsole.ainput("")
+        except (EOFError, RuntimeError):
+            # No interactive stdin (detached/background). Run until killed.
+            logger.info("no interactive stdin; running until terminated")
+            await asyncio.Event().wait()
 
 
 if __name__ == "__main__":

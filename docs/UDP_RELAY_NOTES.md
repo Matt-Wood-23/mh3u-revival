@@ -89,18 +89,85 @@ The relay advertises this address to clients:
 $env:MH3U_RELAY_ADVERTISE="YOUR_PUBLIC_IP_OR_HOSTNAME"
 ```
 
-## Relay ports
+## Relay ports and capacity
 
-The relay uses one UDP socket per relayed peer pair. Choose a contiguous UDP
-range large enough for the number of simultaneous relayed peer pairs you want to
-support.
+The relay uses one UDP socket per relayed **peer pair**, and a 4-player room meshes
+fully — so a full room needs **6 ports**, not 1. Size the range against `MH3U_MAX_ROOMS`:
 
-Example 64-port range:
+```
+ports needed = MH3U_MAX_ROOMS x 6
+```
+
+At the default `MH3U_MAX_ROOMS=48` that is 288 ports, e.g.:
 
 ```powershell
 $env:MH3U_RELAY_PORT_START="27100"
-$env:MH3U_RELAY_PORT_END="27163"
+$env:MH3U_RELAY_PORT_END="27387"
 ```
+
+The server prints a warning at startup if the pool is smaller than that, naming the
+exact `MH3U_RELAY_PORT_END` to set. Whatever range you choose must be open in the
+host's firewall.
+
+## Mixed LAN + internet rooms
+
+`MH3U_RELAY_ADVERTISE` is published to every player, and one address cannot suit both
+halves of a mixed room. Hand out the public address and a player on the **server's own
+LAN** must hairpin out through the router and back in, which many routers refuse; hand
+out the LAN address and remote players cannot reach it at all.
+
+So when the relay is published on a **public** address, peers the server observes on a
+**private** address are given a LAN address instead:
+
+```powershell
+$env:MH3U_RELAY_ADVERTISE_LAN="192.168.1.50"
+```
+
+Auto-detected from the default route when unset, and only accepted if that address is
+actually private — on an IP-passthrough host the default route is the public address,
+which would be useless here, so it is rejected and the field stays empty. **Set it
+explicitly if your host has several NICs**, or if auto-detection picks a Radmin /
+Tailscale / Hyper-V adapter.
+
+This mirrors what the server already does for direct connections, where `_build_public()`
+stamps each peer with the address it was actually observed on.
+
+Unchanged in every other case: pure-LAN deployments, overlay networks (Radmin `26.x` and
+Tailscale `100.64/10` do not read as private), and any host where no private address is
+known all keep using the single `MH3U_RELAY_ADVERTISE` value for everyone.
+
+## Behaviour when the pool is exhausted
+
+This differs by mode, on purpose:
+
+| Mode | On allocation failure |
+|---|---|
+| `auto` | Falls back to direct P2P. Correct: auto is best-effort NAT rescue, and direct is simply what would have happened anyway. |
+| `force` | **Fails closed** — the join is refused and no address is returned. |
+
+`force` deliberately does *not* fall back. An operator running force has asked for
+every link to be relayed, usually to keep players' IP addresses private; quietly
+handing out a real StationURL instead would revoke that guarantee with nothing but a
+log line to show for it. A refused join is visible and fixable; a silent privacy
+regression is neither.
+
+## Endpoint pinning (`MH3U_RELAY_STRICT`)
+
+A relay port otherwise belongs to the first two endpoints that send to it, with no tie
+to the NEX session. Strict mode drops datagrams whose **source IP** is not one of the
+pair's registered addresses:
+
+```powershell
+$env:MH3U_RELAY_STRICT="1"
+```
+
+**Off by default, and pinning is IP-only.** Port pinning is impossible: measured on
+real hardware (2026-09-03) the game opens a *separate* UDP socket for gameplay, so a
+Wii U registered on PRUDP `:61906` sent from `:55250`, and a Cemu client `:58828` sent
+from `:64005`. IP pinning is workable but not free either — on an overlay network a
+peer can legitimately send from its Radmin/Tailscale address rather than the one its
+NEX connection was observed on. Mismatches are therefore **always logged** even with
+strict off; turn it on once your own logs show no false positives.
 
 ## Limitations
 
@@ -109,6 +176,6 @@ endpoints that send packets to it, then forwards datagrams between them. It does
 not authenticate relay users independently from the surrounding NEX session
 state.
 
-That is usually acceptable for small hosted deployments, but it is not a general
-purpose hardened relay service. If you run a large public server, consider adding
-stronger endpoint validation before accepting traffic on a relay port.
+That is usually acceptable for small hosted deployments. `MH3U_RELAY_STRICT=1` adds
+source-IP validation (see above); it is not a substitute for a properly hardened relay
+service if you run a large public server.

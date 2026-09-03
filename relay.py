@@ -16,6 +16,10 @@ import relay_policy
 
 logger = logging.getLogger("mh3u.relay")
 
+# How many datagrams to hold while waiting for the pair's second endpoint. Small on
+# purpose: this covers the handshake gap, it is not a queue.
+PENDING_MAX = 16
+
 
 def enabled():
     return config.RELAY_MODE in ("force", "auto")
@@ -31,22 +35,52 @@ def _copy_station(url):
     return url.copy() if hasattr(url, "copy") else common.StationURL(url)
 
 
-def relay_station(url, port):
+def advertise_for(recipient_ip):
+    """Which relay address THIS recipient should be told to use.
+
+    Diverges from RELAY_ADDRESS in exactly one situation: the relay is published on a
+    public address, we know a private address for it, and the recipient was observed on
+    a private one -- i.e. a player on the server's own LAN, who would otherwise have to
+    hairpin out and back through the router to reach it. Everything else (pure-LAN
+    deployments, and overlay networks like Radmin 26.x / Tailscale 100.x, which do not
+    read as private) is unchanged.
+    """
+    lan = config.RELAY_ADDRESS_LAN
+    if not lan or config.is_private_ip(config.RELAY_ADDRESS):
+        return config.RELAY_ADDRESS
+    if config.is_private_ip(recipient_ip):
+        return lan
+    return config.RELAY_ADDRESS
+
+
+def relay_station(url, port, recipient_ip=None):
     station = _copy_station(url)
-    station["address"] = config.RELAY_ADDRESS
+    station["address"] = advertise_for(recipient_ip)
     station["port"] = port
     # Keep the peer's identity fields (PID/RVCID/CID/etc.). Only the UDP destination changes.
     return station
 
 
 class PairRelay(asyncio.DatagramProtocol):
-    def __init__(self, manager, key):
+    def __init__(self, manager, key, expected_ips=None):
         self.manager = manager
         self.key = key
         self.transport = None
         self.port = None
         self.peers = []
         self.last_rx = time.monotonic()
+        # Source IPs we expect, from the pair's registered StationURLs. Advisory unless
+        # config.RELAY_STRICT -- see the note in config.py for why this cannot key on port.
+        self.expected_ips = set(expected_ips or ())
+        self._warned_ips = set()
+        # Datagrams that arrived before BOTH ends were known. Without this the very
+        # first packet through a relay port is discarded, which is fatal for a
+        # guest<->guest link: its establishing probe IS that first packet (a host<->guest
+        # link survives because the guest already has the relay address from
+        # get_session_urls and is streaming at it, so a lost packet is retried at once).
+        # Measured 2026-09-03: relaying guest<->guest probes ejected the 3rd player and
+        # the pair's NAT traversal was never reported as completing.
+        self._pending = []
 
     def connection_made(self, transport):
         self.transport = transport
@@ -56,12 +90,33 @@ class PairRelay(asyncio.DatagramProtocol):
     def datagram_received(self, data, addr):
         self.last_rx = time.monotonic()
         if addr not in self.peers:
+            src_ip = addr[0]
+            unexpected = bool(self.expected_ips) and src_ip not in self.expected_ips
+            if unexpected and src_ip not in self._warned_ips:
+                self._warned_ips.add(src_ip)
+                logger.warning(
+                    "relay %s:%s endpoint %s is NOT one of the pair's registered "
+                    "addresses %s (%s)", self.key, self.port, addr,
+                    sorted(self.expected_ips),
+                    "DROPPED - MH3U_RELAY_STRICT=1" if config.RELAY_STRICT
+                    else "allowed - set MH3U_RELAY_STRICT=1 to drop")
+            if unexpected and config.RELAY_STRICT:
+                return
             if len(self.peers) >= 2:
                 logger.warning("relay %s:%s dropping third endpoint %s", self.key, self.port, addr)
                 return
             self.peers.append(addr)
             logger.info("relay %s:%s learned endpoint %d %s", self.key, self.port, len(self.peers), addr)
+            if len(self.peers) == 2 and self._pending:
+                # Second end just showed up -- deliver what the first end already sent.
+                logger.info("relay %s:%s flushing %d buffered datagram(s) to %s",
+                            self.key, self.port, len(self._pending), addr)
+                for buf in self._pending:
+                    self.transport.sendto(buf, addr)
+                self._pending.clear()
         if len(self.peers) < 2:
+            if len(self._pending) < PENDING_MAX:
+                self._pending.append(data)
             return
         dst = self.peers[1] if addr == self.peers[0] else self.peers[0]
         self.transport.sendto(data, dst)
@@ -94,11 +149,12 @@ class RelayManager:
             return selected
         return False
 
-    async def station_for(self, gid, host_pid, guest_pid, peer_station):
-        pair = await self._get_or_create(gid, host_pid, guest_pid)
-        return relay_station(peer_station, pair.port)
+    async def station_for(self, gid, host_pid, guest_pid, peer_station,
+                          expected_ips=None, recipient_ip=None):
+        pair = await self._get_or_create(gid, host_pid, guest_pid, expected_ips)
+        return relay_station(peer_station, pair.port, recipient_ip)
 
-    async def _get_or_create(self, gid, host_pid, guest_pid):
+    async def _get_or_create(self, gid, host_pid, guest_pid, expected_ips=None):
         key = _pair_key(gid, host_pid, guest_pid)
         relay = self._relays.get(key)
         if relay is not None:
@@ -107,7 +163,7 @@ class RelayManager:
             relay = self._relays.get(key)
             if relay is not None:
                 return relay
-            relay = await self._bind(key)
+            relay = await self._bind(key, expected_ips)
             self._relays[key] = relay
             self._ensure_janitor()
             logger.info("relay allocated gid=0x%x host=%s guest=%s on %s:%d advertised as %s:%d",
@@ -115,11 +171,11 @@ class RelayManager:
                         config.RELAY_ADDRESS, relay.port)
             return relay
 
-    async def _bind(self, key):
+    async def _bind(self, key, expected_ips=None):
         loop = asyncio.get_running_loop()
         if config.RELAY_PORT_START == 0:
             transport, protocol = await loop.create_datagram_endpoint(
-                lambda: PairRelay(self, key), local_addr=(config.HOST, 0))
+                lambda: PairRelay(self, key, expected_ips), local_addr=(config.HOST, 0))
             return protocol
         for port in range(config.RELAY_PORT_START, config.RELAY_PORT_END + 1):
             used = any(r.port == port for r in self._relays.values())
@@ -127,7 +183,7 @@ class RelayManager:
                 continue
             try:
                 transport, protocol = await loop.create_datagram_endpoint(
-                    lambda: PairRelay(self, key), local_addr=(config.HOST, port))
+                    lambda: PairRelay(self, key, expected_ips), local_addr=(config.HOST, port))
                 return protocol
             except OSError:
                 continue

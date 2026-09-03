@@ -80,6 +80,93 @@ RELAY_PORT_START = _int_env("MH3U_RELAY_PORT_START", 27100)
 RELAY_PORT_END = _int_env("MH3U_RELAY_PORT_END", 27164)
 RELAY_IDLE_TIMEOUT = _float_env("MH3U_RELAY_IDLE_TIMEOUT", 300.0)
 
+# Endpoint pinning for relay ports. A relay port otherwise belongs to the first two
+# endpoints that send to it, with no tie to the NEX session -- fine for a small private
+# host, a griefing surface on a public one. Strict mode drops datagrams whose SOURCE IP
+# is not one of the pair's registered addresses.
+#
+# OFF BY DEFAULT, deliberately. Pinning on port is impossible (confirmed on hardware
+# 2026-09-03: a Wii U registered PRUDP :61906 but sent gameplay UDP from :55250, and Cemu
+# :58828 -> :64005 -- the game opens a separate P2P socket). Pinning on IP is workable but
+# not risk-free: on an overlay network a peer can legitimately send from its Radmin/
+# Tailscale address rather than the one the NEX connection was observed on. Mismatches are
+# therefore ALWAYS logged; enable this only once your own logs show no false positives.
+RELAY_STRICT = os.environ.get("MH3U_RELAY_STRICT", "").strip() == "1"
+
+# Which NAT-traversal probes get their peer address rewritten to a relay endpoint.
+# Measured 2026-09-03: the game IGNORES the get_session_urls address for gameplay and
+# uses the probe-advertised one, so this switch controls whether the relay carries any
+# traffic at all (with probes direct, relay ports saw 0 packets).
+#   all  - rewrite every probe (full relay; breaks 3-player rooms as of 2026-09-03)
+#   host - rewrite only probes for pairs involving the room HOST, leave guest<->guest
+#          direct. Diagnostic bisect: isolates whether guest<->guest relaying is the
+#          part that breaks the mesh.
+#   off  - never rewrite probes. Relay ports then carry nothing; gameplay is fully direct.
+# "host" and "off" both expose real peer addresses -- diagnostics, not privacy settings.
+RELAY_PROBES_MODE = os.environ.get("MH3U_RELAY_PROBES", "all").strip().lower()
+if RELAY_PROBES_MODE in ("1", "true", "yes"):
+    RELAY_PROBES_MODE = "all"
+elif RELAY_PROBES_MODE in ("0", "false", "no"):
+    RELAY_PROBES_MODE = "off"
+if RELAY_PROBES_MODE not in ("all", "host", "off"):
+    RELAY_PROBES_MODE = "all"
+
+# LAN-side relay address, for sessions that mix local and internet players.
+#
+# RELAY_ADDRESS is advertised to everyone, which cannot be right for both halves of a
+# mixed room: give out the public IP and a player on the SERVER'S OWN LAN has to leave
+# the network and come back in (NAT hairpin, which many routers refuse); give out the
+# LAN IP and remote players cannot reach it at all. So when the relay is published on a
+# PUBLIC address, peers observed on a private address are handed this one instead. This
+# mirrors what _build_public() already does for direct connections, where each peer is
+# stamped with the address it was actually observed on.
+#
+# Auto-detected from the default route; override if that picks the wrong NIC (a Radmin /
+# Tailscale / Hyper-V adapter). Only ever consulted when RELAY_ADDRESS is public AND the
+# recipient is private, so a pure-LAN deployment behaves exactly as before.
+def is_private_ip(ip):
+    """RFC1918 / loopback / link-local — i.e. not reachable from the internet.
+
+    Caveat: ipaddress also reports the TEST-NET documentation ranges (192.0.2.0/24,
+    198.51.100.0/24, 203.0.113.0/24) as private, so do not use those as stand-in
+    "public" addresses in tests. Overlay networks go the other way — Radmin 26.x and
+    Tailscale 100.64/10 both read as NOT private, which is what keeps overlay
+    deployments on the single-address path they have always used.
+    """
+    if not ip:
+        return False
+    try:
+        import ipaddress
+        a = ipaddress.ip_address(ip)
+        return a.is_private or a.is_loopback or a.is_link_local
+    except ValueError:
+        return False
+
+
+def _default_lan_ip():
+    """Address on the default route, but ONLY if it is private.
+
+    On a host using IP passthrough the default-route address is the PUBLIC one (measured:
+    a passthrough box returns its own public address here), which is useless as a "LAN alternative"
+    -- so reject anything non-private and leave the field empty rather than store a value
+    that silently means nothing.
+    """
+    import socket
+    try:
+        s_ = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s_.connect(("8.8.8.8", 80))   # no packets sent; just resolves the route
+            ip = s_.getsockname()[0]
+        finally:
+            s_.close()
+    except Exception:
+        return ""
+    return ip if is_private_ip(ip) else ""
+
+
+RELAY_ADDRESS_LAN = (os.environ.get("MH3U_RELAY_ADVERTISE_LAN", "").strip()
+                     or _default_lan_ip())
+
 # In-memory auto-relay learning. This state is deliberately not persisted across
 # server restarts; it only prevents repeated failed direct joins during one uptime.
 RELAY_AUTO_MAX_CLIENTS = _int_env("MH3U_RELAY_AUTO_MAX_CLIENTS", 500)

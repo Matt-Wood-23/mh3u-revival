@@ -23,6 +23,21 @@ import relay_policy
 logger = logging.getLogger("mh3u.proto")
 
 
+def _expected_ips(*pids):
+    """Registered source addresses for a pair -- advisory input to relay endpoint
+    pinning. Module-level on purpose: both MatchMakingServer and NATTraversalServer
+    allocate relays."""
+    out = []
+    for pid in pids:
+        st = matchmaking_handlers.STATIONS.get(pid)
+        if st is not None:
+            try:
+                out.append(st["address"])
+            except Exception:
+                pass
+    return out
+
+
 def _pid(client):
     p = getattr(client, "pid", None)
     return p() if callable(p) else p
@@ -435,11 +450,26 @@ class MatchMakingServer(_Trace, matchmaking.MatchMakingServer):
         guest = _pid(client)
         if relay.MANAGER.should_relay(host, guest):
             try:
-                rurl = await relay.MANAGER.station_for(gid, host, guest, url)
+                rurl = await relay.MANAGER.station_for(
+                    gid, host, guest, url, _expected_ips(host, guest),
+                    limits.remote_ip(client))
                 logger.info("relay: room gid=0x%x host=%s guest=%s -> %s",
                             gid, host, guest, rurl)
                 return [rurl]
             except Exception as e:
+                # FAIL CLOSED under force. The operator asked for every link to be
+                # relayed; handing back the host's real address instead would silently
+                # revoke that -- the join failing is the honest outcome, and the fix
+                # (a bigger MH3U_RELAY_PORT_END) is named right here in the log.
+                # Under auto, relay is best-effort NAT rescue, so falling back to
+                # direct stays correct and is left exactly as it was.
+                if config.RELAY_MODE == "force":
+                    logger.error("relay: FAILED to allocate gid=0x%x host=%s guest=%s: %s. "
+                                 "MH3U_RELAY=force, so NOT falling back to a direct address "
+                                 "(that would expose the host's real IP). This join will fail. "
+                                 "Widen MH3U_RELAY_PORT_START/END -- see the capacity warning "
+                                 "at startup.", gid, host, guest, e)
+                    return []
                 logger.warning("relay: failed to allocate gid=0x%x host=%s guest=%s: %s; using direct",
                                gid, host, guest, e)
         return [url] if url is not None else []
@@ -667,10 +697,22 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
                 used_relay = False
                 relay_gid, peer_a, peer_b = self._room_pair(caller, target_pid)
                 should_relay = relay.MANAGER.should_relay(peer_a, peer_b)
+                if should_relay and config.RELAY_PROBES_MODE != "all":
+                    if config.RELAY_PROBES_MODE == "off":
+                        should_relay = False
+                    else:   # "host": only pairs that include the room host
+                        _sess = matchmaking_handlers.REGISTRY.sessions.get(relay_gid)
+                        _host = _sess.host_pid if _sess else None
+                        if _host is None or (peer_a != _host and peer_b != _host):
+                            should_relay = False
+                            logger.info("  -> probe relay skipped (guest<->guest, "
+                                        "MH3U_RELAY_PROBES=host): %s <-> %s", peer_a, peer_b)
                 if should_relay:
                     if relay_gid is not None:
                         probe_for_target = await relay.MANAGER.station_for(
-                            relay_gid, peer_a, peer_b, base_probe)
+                            relay_gid, peer_a, peer_b, base_probe,
+                            _expected_ips(peer_a, peer_b),
+                            limits.remote_ip(target_client))
                         used_relay = True
                     else:
                         logger.warning("  -> relay wanted for caller=%s target=%s but no shared room found",

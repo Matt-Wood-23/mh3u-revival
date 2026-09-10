@@ -846,6 +846,17 @@ def _run_gui(smoke=False):
         override_var = tk.StringVar()
         ttk.Entry(override_row, textvariable=override_var, width=22).pack(side="left", padx=6)
 
+        relay_var = tk.BooleanVar(value=False)
+        relay_row = ttk.Frame(host)
+        relay_row.pack(fill="x", pady=(0, 8))
+        ttk.Checkbutton(relay_row, text="Relay hunt traffic through this PC (experimental)",
+                        variable=relay_var).pack(anchor="w")
+        ttk.Label(relay_row,
+                  text="Friends won't need port forwarding, including on cellular / CGNAT,\n"
+                       "and players won't see each other's IP addresses. All hunt traffic\n"
+                       "uses your upload, and UDP 27100-27387 must be open too.",
+                  foreground="#555", justify="left").pack(anchor="w", padx=(20, 0))
+
         banner_var = tk.StringVar(value="")
         banner = ttk.Entry(host, textvariable=banner_var, state="readonly",
                            font=("Consolas", 11))
@@ -885,10 +896,16 @@ def _run_gui(smoke=False):
                 return
             env = dict(os.environ)
             env["MH3U_ADVERTISE"] = ip
+            relay_on = bool(relay_var.get())
+            if relay_on:
+                # Deliberately not setting MH3U_RELAY_PROBES: "host" is the correct
+                # default and "all" breaks 3-player rooms. See docs/GUEST_PAIR_PROBLEM.md.
+                env["MH3U_RELAY"] = "force"
             banner_var.set(f"Friends connect to:  {ip}")
             if not banner.winfo_ismapped():
                 banner.pack(fill="x", pady=6, before=btnrow)
-            hlog(f"[Host] Starting server ({kind}), advertising {ip} ...")
+            hlog(f"[Host] Starting server ({kind}), advertising {ip}"
+                 f"{', relay ON' if relay_on else ''} ...")
             try:
                 flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
                 proc = subprocess.Popen(

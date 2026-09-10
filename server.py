@@ -327,10 +327,15 @@ async def main():
     logger.info("MH3U NEX server  |  game_server_id=0x%08X  access_key=%s  nex_version=%d",
                 config.GAME_SERVER_ID, config.ACCESS_KEY, config.NEX_VERSION)
     if relay.enabled():
-        logger.info("UDP relay: mode=%s bind=%s ports=%d-%d advertise=%s idle=%.0fs strict=%s",
-                    config.RELAY_MODE, config.HOST, config.RELAY_PORT_START,
-                    config.RELAY_PORT_END, config.RELAY_ADDRESS, config.RELAY_IDLE_TIMEOUT,
-                    "on" if config.RELAY_STRICT else "off")
+        # probes= is printed on purpose: it is the one relay setting whose wrong value
+        # silently breaks 3-player rooms, and a stale binary that predates the setting
+        # would ignore the env var with no other symptom. If a host reports ejections,
+        # this line settles what was actually in effect.
+        logger.info("UDP relay: mode=%s probes=%s bind=%s ports=%d-%d advertise=%s "
+                    "idle=%.0fs strict=%s",
+                    config.RELAY_MODE, config.RELAY_PROBES_MODE, config.HOST,
+                    config.RELAY_PORT_START, config.RELAY_PORT_END, config.RELAY_ADDRESS,
+                    config.RELAY_IDLE_TIMEOUT, "on" if config.RELAY_STRICT else "off")
         # One relay socket per PEER PAIR, and a 4-player room meshes fully -> 6 pairs.
         # Warn BEFORE the pool runs dry, because the two failure modes are both nasty:
         # under force a join is refused (fail-closed, by design), and under auto the

@@ -179,3 +179,14 @@ state.
 That is usually acceptable for small hosted deployments. `MH3U_RELAY_STRICT=1` adds
 source-IP validation (see above); it is not a substitute for a properly hardened relay
 service if you run a large public server.
+
+## 3+ players: the guest-pair problem
+
+The relay covers host<->guest links. In a room of 3 or more there are also **guest<->guest**
+links, which are brokered differently and do NOT survive a restrictive NAT -- relaying them
+(`MH3U_RELAY_PROBES=all`) does not help either, because the relay cannot learn an endpoint
+from a peer that is waiting to receive before it sends.
+
+The practical rule that falls out: **the player with `natm=2` must create the room.**
+
+Full analysis, evidence matrix and candidate fixes: [GUEST_PAIR_PROBLEM.md](GUEST_PAIR_PROBLEM.md).

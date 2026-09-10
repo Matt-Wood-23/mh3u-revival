@@ -77,7 +77,10 @@ if RELAY_MODE not in ("off", "force", "auto"):
 # the relay is exposed through a different IP/name.
 RELAY_ADDRESS = os.environ.get("MH3U_RELAY_ADVERTISE", SERVER_ADDRESS).strip() or SERVER_ADDRESS
 RELAY_PORT_START = _int_env("MH3U_RELAY_PORT_START", 27100)
-RELAY_PORT_END = _int_env("MH3U_RELAY_PORT_END", 27164)
+# 288 ports = 48 rooms x 6 pairs, matching the MH3U_MAX_ROOMS default. Sized to the cap
+# on purpose: force mode fails CLOSED, so a pool that is too small does not degrade to
+# direct P2P, it REFUSES joins once busy.
+RELAY_PORT_END = _int_env("MH3U_RELAY_PORT_END", 27387)
 RELAY_IDLE_TIMEOUT = _float_env("MH3U_RELAY_IDLE_TIMEOUT", 300.0)
 
 # Endpoint pinning for relay ports. A relay port otherwise belongs to the first two
@@ -97,13 +100,17 @@ RELAY_STRICT = os.environ.get("MH3U_RELAY_STRICT", "").strip() == "1"
 # Measured 2026-09-03: the game IGNORES the get_session_urls address for gameplay and
 # uses the probe-advertised one, so this switch controls whether the relay carries any
 # traffic at all (with probes direct, relay ports saw 0 packets).
-#   all  - rewrite every probe (full relay; breaks 3-player rooms as of 2026-09-03)
-#   host - rewrite only probes for pairs involving the room HOST, leave guest<->guest
-#          direct. Diagnostic bisect: isolates whether guest<->guest relaying is the
-#          part that breaks the mesh.
+#   host - DEFAULT. Rewrite only probes for pairs involving the room HOST; leave
+#          guest<->guest direct.
+#   all  - rewrite every probe. Do NOT use: measured 2026-09-09 on real hardware, relaying
+#          a guest<->guest pair DEADLOCKS it. The relay only learns a peer's endpoint from a
+#          packet that peer sends, and the affected peer never sends to a guest relay, so
+#          nothing is ever forwarded and the later joiner is ejected. Kept only because it
+#          is the A/B that proved it. See docs/GUEST_PAIR_PROBLEM.md.
 #   off  - never rewrite probes. Relay ports then carry nothing; gameplay is fully direct.
-# "host" and "off" both expose real peer addresses -- diagnostics, not privacy settings.
-RELAY_PROBES_MODE = os.environ.get("MH3U_RELAY_PROBES", "all").strip().lower()
+# "host" and "off" both expose real peer addresses for guest<->guest pairs -- at 3+ players
+# the relay cannot cover every link. Again: docs/GUEST_PAIR_PROBLEM.md.
+RELAY_PROBES_MODE = os.environ.get("MH3U_RELAY_PROBES", "host").strip().lower()
 if RELAY_PROBES_MODE in ("1", "true", "yes"):
     RELAY_PROBES_MODE = "all"
 elif RELAY_PROBES_MODE in ("0", "false", "no"):

@@ -63,9 +63,12 @@ else.
    fails with only them in it, the pair link is the problem — the "4th player" framing
    was a coincidence.
 2. The host can see the failing edge: search the server console for
-   `report_nat_traversal_result` right after the failed join. A `result=False` (or a
-   `request_probe_initiation_ext` with no `True` afterwards) from one of the pair's
-   `pid=` values is the smoking gun.
+   `report_nat_traversal_result` right after the failed join. **Look for a pair that
+   reports *nothing*, not for `result=False`.** Measured over a full evening of real
+   sessions: 12 `result=True` and *zero* `result=False` — a failing pair simply goes
+   silent, then the later joiner disconnects 3–8 seconds after its
+   `request_probe_initiation_ext`. So the smoking gun is a pair whose two `pid=` values
+   never appear together in a `result=` line at all.
 
 **Fixes, in order of likelihood:**
 
@@ -97,11 +100,34 @@ else.
    else correct. **Recent server builds auto-correct this:** the server re-stamps each P2P
    probe to the same VPN plane you reached it on, so Radmin groups connect. If a Radmin player
    still can't join, **the host should update their server.**
-4. **If it's CGNAT and there's no VPN yet**, the VPN path is the fix: the whole group
+4. **Have the worst-connected player CREATE the room.** This is the single most
+   effective fix and it costs nothing — confirmed on real hardware 2026-09-09.
+
+   A room is a full mesh, but the server does not broker every link the same way. Links
+   involving the **room host** get the relay address by two routes (the NAT probe *and*
+   the room's own station URL), so they establish even when direct hole-punching is
+   impossible. Links between two **non-host** players get only the probe, and a
+   restrictive NAT on either end kills them.
+
+   A 2-player room has no non-host pairs at all — which is exactly why "it works when
+   it's just the two of us" and breaks the moment a third joins. It is not a
+   contradiction, it is the same two people on a different code path.
+
+   So: whichever player has the strictest NAT (server log: `report_nat_properties` with
+   `natm=2`) should be the one who **creates** the room. Every link they are in then
+   becomes a host link. Recent servers print a warning naming the player when this is
+   about to bite. Full analysis: [GUEST_PAIR_PROBLEM.md](GUEST_PAIR_PROBLEM.md).
+
+5. **If it's CGNAT and there's no VPN yet**, the VPN path also works: the whole group
    (server included) on the same Tailscale/Radmin network — see [PLAYING.md](PLAYING.md).
-   The VPN carries the player↔player traffic, so NAT stops mattering. Failing that, the
-   two simply can't share a room until one of them is on a different network — a
-   server-side relay that would remove this limitation entirely is being investigated.
+   The VPN carries the player↔player traffic, so NAT stops mattering.
+
+6. **The server-side UDP relay helps, but does not remove this limitation.** It covers
+   host↔guest links (`MH3U_RELAY=force`), which is why rule 4 works so well. It does
+   **not** rescue guest↔guest links: relaying those deadlocks them, because the relay can
+   only learn a peer's endpoint from a packet that peer sends, and the affected peer never
+   sends. Do not set `MH3U_RELAY_PROBES=all` hoping to fix this — that is the setting that
+   ejects the third player.
 
 ---
 

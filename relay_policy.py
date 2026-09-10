@@ -123,6 +123,18 @@ def record_nat_properties(pid, natm, natf, rtt, now=None):
     _prune(now)
 
 
+def nat_of(pid):
+    """Last (natm, natf) this pid reported, or (None, None) if it never did.
+
+    Read-only view for callers that need to explain a link failure rather than decide
+    relay policy -- see the guest-pair warning in protocols.py.
+    """
+    st = CLIENTS.get(pid)
+    if st is None:
+        return None, None
+    return st.get("natm"), st.get("natf")
+
+
 def record_plane_mismatch(pid, self_reported, reflexive, now=None):
     st = _client(pid, now)
     if st is None:

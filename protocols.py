@@ -23,6 +23,44 @@ import relay_policy
 logger = logging.getLogger("mh3u.proto")
 
 
+# Guest<->guest pairs that have already been warned about, so a retrying client does not
+# repeat the warning every few seconds. Bounded rather than cleared per-session: this is a
+# diagnostic, and forgetting an old pair only costs one extra log line.
+_WARNED_GUEST_PAIRS = set()
+
+
+def _warn_guest_pair_nat(a_pid, b_pid, host_pid):
+    """Warn when a guest<->guest pair contains a restrictive NAT.
+
+    Such a pair has NO relay (probes are host-only by default) and, unlike a host pair, no
+    room-station-URL channel either -- so a restrictive NAT on either end means the link
+    never forms and the later joiner is ejected a few seconds after joining. Measured on
+    real hardware 2026-09-09; full analysis in docs/GUEST_PAIR_PROBLEM.md.
+
+    The fix is not a server setting: the affected player has to be the one who CREATES the
+    room, which turns every link they are in into a host pair.
+    """
+    key = (a_pid, b_pid) if a_pid <= b_pid else (b_pid, a_pid)
+    if key in _WARNED_GUEST_PAIRS:
+        return
+    risky = []
+    for pid in (a_pid, b_pid):
+        natm, natf = relay_policy.nat_of(pid)
+        if natm is not None and natm >= 2:
+            risky.append("pid=%s (natm=%s natf=%s)" % (pid, natm, natf))
+    if not risky:
+        return
+    if len(_WARNED_GUEST_PAIRS) > 256:
+        _WARNED_GUEST_PAIRS.clear()
+    _WARNED_GUEST_PAIRS.add(key)
+    logger.warning(
+        "guest<->guest link %s <-> %s has a restrictive NAT: %s. This pair has no relay and "
+        "no room-station channel, so it will probably FAIL and eject the later joiner. "
+        "FIX: have that player CREATE the room instead of joining one (current room host is "
+        "pid=%s). See docs/GUEST_PAIR_PROBLEM.md.",
+        a_pid, b_pid, " and ".join(risky), host_pid)
+
+
 def _expected_ips(*pids):
     """Registered source addresses for a pair -- advisory input to relay endpoint
     pinning. Module-level on purpose: both MatchMakingServer and NATTraversalServer
@@ -707,6 +745,7 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
                             should_relay = False
                             logger.info("  -> probe relay skipped (guest<->guest, "
                                         "MH3U_RELAY_PROBES=host): %s <-> %s", peer_a, peer_b)
+                            _warn_guest_pair_nat(peer_a, peer_b, _host)
                 if should_relay:
                     if relay_gid is not None:
                         probe_for_target = await relay.MANAGER.station_for(

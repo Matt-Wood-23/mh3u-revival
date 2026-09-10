@@ -195,6 +195,10 @@ same hall and enter your room.
 | `MH3U_NOTIFY_ON` | `1` | on room leave/disconnect, notify the remaining players so their game drops the leaver (the rejoin fix — works for any host, local or remote). Leave on. |
 | `MH3U_HOST_FREE` | `0` | legacy fallback for the same fix: poke the departed guest's slot directly in the **host Cemu's** RAM. Only works when the server runs **on the same machine as the host Cemu**; superseded by `MH3U_NOTIFY_ON`. |
 | `MH3U_HOST_HINT` | `e:\cemu-src` | exe-path hint to find the host Cemu process (legacy poke only) |
+| `MH3U_RELAY` | `off` | UDP relay for gameplay traffic. `force` = relay every host↔guest hunt link, so peers never learn each other's real IP and joiners need no port forwarding. `auto` = relay only pairs whose direct connection already failed. See the section below. |
+| `MH3U_RELAY_PROBES` | `host` | which links the relay covers. **Leave this alone.** `all` is a diagnostic that breaks 3-player rooms — see [GUEST_PAIR_PROBLEM.md](GUEST_PAIR_PROBLEM.md). |
+| `MH3U_RELAY_ADVERTISE` | = `MH3U_ADVERTISE` | address players are told to send relayed traffic to. Only set this if the relay is reachable on a different address than the server. |
+| `MH3U_RELAY_PORT_START` / `_END` | `27100` / `27387` | UDP port pool for relayed links, one port per player pair. 288 ports covers the default room cap. **These must be forwarded** if you relay. |
 | `MH3U_REAP_TIMEOUT` | `45` | seconds of silence before a ghost connection is reaped (`0` disables — use while debugging with a paused Cemu) |
 
 > **Rejoin fix note:** since 2026-07-02 the leave/rejoin fix is a standard NEX
@@ -202,6 +206,50 @@ same hall and enter your room.
 > same PC, another PC, another continent. The old RAM-poke (`host_roster_free.py`,
 > `MH3U_HOST_FREE=1`) remains available as an emergency fallback for co-located hosts.
 > See [ARCHITECTURE.md §4](ARCHITECTURE.md#4-the-rejoin-problem-and-its-fix-the-hard-part).
+
+## Optional: the UDP relay
+
+By default hunts are direct peer-to-peer: players connect straight to each other, which
+means they see each other's IP addresses and both ends need to get through their own NAT.
+
+Setting `MH3U_RELAY=force` routes hunt traffic through **your** server instead:
+
+```sh
+MH3U_RELAY=force MH3U_ADVERTISE=<your-public-ip> python server.py
+```
+
+What that buys you:
+
+- **Joiners no longer need port forwarding**, including players behind CGNAT (cellular home
+  internet, Starlink, hotspots) who often cannot hole-punch at all.
+- **Players stop seeing each other's IP addresses** — they only ever see your server's.
+
+What it costs you:
+
+- **All hunt traffic flows through your connection**, both directions, for every relayed
+  link. This is real bandwidth. Fine for a group of friends; think before pointing a large
+  hall at it.
+- **You must forward the relay port range** (`27100-27387` UDP by default) as well as
+  `1223`/`1224`.
+
+Two things to know before you turn it on:
+
+1. **It does not remove the need for *you* to be reachable.** The relay hides the other
+   players' addresses, not yours — you are the server, so you still need a public IP and
+   forwarded ports. See [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md).
+2. **It does not cover every link in a 3+ player room.** The relay handles links involving
+   the room's host player; links between two non-host players stay direct. This is why the
+   player with the worst NAT should be the one who **creates** the room. Your server prints
+   a warning naming them when it matters. Full detail:
+   [GUEST_PAIR_PROBLEM.md](GUEST_PAIR_PROBLEM.md).
+
+`MH3U_RELAY=force` **fails closed**: if the port pool runs out it refuses the join rather
+than quietly falling back to exposing a real address. If you see that in your log, widen
+`MH3U_RELAY_PORT_END` — the log line tells you the exact value to use.
+
+There is also `MH3U_RELAY=auto`, which starts every pair direct and relays only pairs that
+have already failed. It uses fewer ports and less bandwidth, at the cost of one failed join
+attempt before it kicks in, and it does not hide addresses from pairs that connect fine.
 
 ## Troubleshooting
 

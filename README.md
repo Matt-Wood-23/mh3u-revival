@@ -1,9 +1,11 @@
 # MH3U Revival — self-hosted online for Monster Hunter 3 Ultimate (Wii U)
 
-> **Status: public beta.** Self-host online multiplayer for MH3U on
-> [Cemu](https://cemu.info), with **no console dump**. One person runs the server,
-> their friends join — hunts are peer-to-peer; the server only does matchmaking and
-> presence. Built on [Kinnay's NintendoClients](https://github.com/kinnay/NintendoClients).
+> **Status: public beta.** Self-host online multiplayer for MH3U — on
+> [Cemu](https://cemu.info) with **no console dump**, or on a **real Wii U** running
+> [Aroma](https://wiiu.hacks.guide/). Emulator and console play together in the same room.
+> One person runs the server, their friends join — hunts are peer-to-peer; the server only
+> does matchmaking and presence. Built on
+> [Kinnay's NintendoClients](https://github.com/kinnay/NintendoClients).
 
 Monster Hunter 3 Ultimate's official Wii U servers are gone, and many of us have waited quite
 a long time for someone to bring it back! This brings the online gathering halls and 
@@ -18,45 +20,50 @@ You bring your own legal game dump; nothing from Nintendo is distributed.
 
 ---
 
-## ⚠️ Legal / disclaimer
+## Get started
 
-This is an unofficial, **non-commercial** fan project, not affiliated with or endorsed by
-Nintendo or Capcom. Monster Hunter and Monster Hunter 3 Ultimate are trademarks of their
-respective owners.
+- **Hosting a game?** → [docs/HOSTING.md](docs/HOSTING.md)
+- **Joining a friend's game (Cemu)?** → [docs/PLAYING.md](docs/PLAYING.md)
+- **Playing on a real Wii U?** → [docs/WIIU_CONSOLE.md](docs/WIIU_CONSOLE.md)
+- **Something not working?** → [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+- **How it works / design decisions** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
-- It ships **no Nintendo or Capcom code, keys, certificates, or game data.** The online
-  "gate" files it generates are right-sized dummies (zeros + 4-byte empty stubs) that only
-  satisfy Cemu's file-existence check.
-- **Every player supplies their own legal copy/dump** of the game. None is included or
-  distributed.
-- It reimplements an interoperable game server from black-box reverse engineering of
-  publicly-shipped client behavior. The credentials it uses are values baked into the
-  retail game, not secrets.
+**On Cemu**, everything runs from one app. Grab the **MH3U Online Bundle** from
+[Releases](https://github.com/Matt-Wood-23/mh3u-revival/releases), add your own dump, and
+double-click **`MH3U_Online.exe`** — **Join** to play on someone's server, **Host** to run one
+for your friends. The server is built in; there's no separate Host Add-on. On Linux or a Steam
+Deck, take the experimental `MH3U_Online_Linux.zip` instead.
 
-If you represent a rights-holder with a concern, please open an issue.
+**On a real Wii U**, it's one plugin file and an IP you type on the GamePad —
+[docs/WIIU_CONSOLE.md](docs/WIIU_CONSOLE.md).
+
+Prefer to run the server from source in Python, or modify it? That path is in
+[docs/HOSTING.md](docs/HOSTING.md#1-get-the-server-and-run-it).
 
 ---
 
 ## What works today (beta)
 
 - ✅ Dumpless auth → gathering halls → room create/browse/join → **P2P hunts**.
-- ✅ Four players connected cross-machine over an overlay VPN (**Tailscale or Radmin**),
-  hole-punched. The server re-stamps each hunt's peer-to-peer endpoint to the plane you reached
-  it on, so **Radmin** groups connect even though Cemu reports its raw public IP for the
-  hole-punch probe — verified with a remote player whose join went from **failing to working**
-  with this fix alone (and cross-region JP↔US at that).
-- ✅ **Public-internet hosting (no VPN)** — verified live: a joiner on a cellular network
-  (behind CGNAT) authenticated and P2P'd into a hosted room via the host's bare public IP.
-  Host-side setup guide: [docs/PUBLIC_HOSTING.md](docs/PUBLIC_HOSTING.md).
-- 🧪 **Linux / Steam Deck (experimental):** a community-built Linux bundle
-  (`MH3U_Online_Linux.zip` on Releases, contributed by **jM5557**) — the patched Cemu as an
-  AppImage + a bash launcher. See [docs/PLAYING.md](docs/PLAYING.md#linux--steam-deck-experimental).
-- ✅ Self-healing room churn: clean leave, **hard-drop (Cemu killed) rejoin**, and
-  ghost-population cleanup all recover automatically (see
-  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §4).
+- ✅ Four players cross-machine over an overlay VPN (**Tailscale or Radmin**), hole-punched.
+  The server re-stamps each hunt's P2P endpoint to the plane it reached you on, which is what
+  makes **Radmin** groups connect.
+- ✅ **Public-internet hosting (no VPN)** — including joiners behind CGNAT.
+  [docs/PUBLIC_HOSTING.md](docs/PUBLIC_HOSTING.md).
+- 🧪 **Linux / Steam Deck (experimental)** — a community bundle from **jM5557**
+  (`MH3U_Online_Linux.zip`). [docs/PLAYING.md](docs/PLAYING.md#linux--steam-deck-experimental).
+- ✅ Self-healing room churn — clean leave, hard-drop rejoin and ghost cleanup all recover
+  on their own ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §4).
+- 🆕 **Real Wii U consoles** (v0.2.0-beta) — an Aroma plugin points the console at your
+  server, so console and Cemu players share rooms. Proven over the public internet with two
+  consoles and a PC. [docs/WIIU_CONSOLE.md](docs/WIIU_CONSOLE.md).
+- 🆕 **Optional UDP relay** (v0.2.0-beta) — routes hunt traffic through the server, so
+  joiners need no port forwarding and players never see each other's IPs. Costs host
+  bandwidth, and has a [known limit at 3+ players](docs/GUEST_PAIR_PROBLEM.md).
+  [docs/HOSTING.md](docs/HOSTING.md#optional-the-udp-relay).
 - ✅ Per-player random unique identity — no central accounts, no sign-up.
-- ✅ **Zero-setup joining:** a ready-to-run bundle with online **pre-enabled** — bring your
-  own dump, double-click the launcher, play. No Cemu account/settings fiddling, no Python.
+- ✅ **Zero-setup joining** — the bundle ships with online pre-enabled: add your dump,
+  double-click, play. No Cemu settings to fiddle with, no Python.
 
 **Game version:** the **US**, **EU/PAL** and **JP** versions are all tested end-to-end —
 including verified **cross-region rooms** (EU + US, and JP + US, hunting together). An
@@ -64,12 +71,6 @@ EUR-build crash on entering Network Mode is fixed since v0.1.4, and a **JP boot 
 upstream Cemu regression) is fixed in the bundle's Cemu since **v0.1.6**. The JP version
 (*MH3G HD Ver.*) needs a couple of extra system files on any Cemu — see
 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#jp-version-mh3g-hd-ver--extra-setup).
-
-**Still being tested (don't expect polish yet):** *joiner-hosted* rooms
-between two NAT'd players on the bare internet (host-hosted rooms are the verified path); the
-Linux bundle beyond LAN play; and — new — **larger gathering halls** (default 16 hunters per
-hall, multiple 4-player rooms per server), now that public-IP hosting makes a bigger crowd
-reachable. Hunts stay **4 players** (the game's P2P limit); the hall size is what's growing.
 
 ---
 
@@ -88,85 +89,34 @@ a fix, though, so it doesn't get lost in chat.
 
 ---
 
-## Get started
+## Scope & what's next
 
-- **Hosting a game?** → [docs/HOSTING.md](docs/HOSTING.md)
-- **Joining a friend's game?** → [docs/PLAYING.md](docs/PLAYING.md)
-- **Something not working?** → [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
-- **How it works / design decisions** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+**What this is.** Each host runs their own server for their own group. There is
+intentionally **no** global public matchmaking service — that would be a
+hosting/cost/moderation/legal commitment this project doesn't take on, and it's why I can't
+host for everyone. Reachability is a private overlay (Tailscale/Radmin) or, for hosts who opt
+in, their own public IP ([docs/PUBLIC_HOSTING.md](docs/PUBLIC_HOSTING.md)) — invite-only
+either way, not "post your IP for the world."
 
-> **Tried an earlier build and got stuck on the online checkmark** — greyed-out *Network Service*,
-> or *"not linked to a NNID or PNID"*? **That's fixed.** Grab the current bundle and open
-> `MH3U_Online.exe` → **Join** → *Save + Play*; the launcher sets up (or repairs) your online
-> identity on launch, so the green checkmark appears on its own — no Cemu account settings to touch.
+**Sizes.** A hunt is **4 players** — the game's own P2P limit, not a setting worth changing.
+A **gathering hall** holds 16 by default (`MH3U_HALL_MAX`) with multiple hunt rooms per
+server; that's the part still being proven at scale.
 
-Everything runs from **one app**: `MH3U_Online.exe`. Double-click it and pick **Join** (play on a
-friend's server) or **Host** (run one for your friends). It's **all-in-one** — the server is built
-right in, so there's no separate "Host Add-on" to download anymore.
+**Rough edges right now.** Rooms hosted by a *joiner* rather than the server operator, the
+Linux bundle beyond LAN play, halls with many live hunters in them, and console support
+generally — all work, none are polished.
 
-**Joining** is the easy path: grab the **MH3U Online Bundle** from the
-[Releases](https://github.com/Matt-Wood-23/mh3u-revival/releases) page — a ready-to-run patched
-Cemu with online pre-enabled. Add your own dump, double-click **`MH3U_Online.exe`**, click **Join**,
-enter the host's IP, and hit *Save + Play*. See [docs/PLAYING.md](docs/PLAYING.md). **On Linux or a
-Steam Deck?** Grab the experimental **`MH3U_Online_Linux.zip`** instead — same flow with a bash
-launcher ([docs/PLAYING.md § Linux](docs/PLAYING.md#linux--steam-deck-experimental)).
+**Being explored** — not promised, and the order isn't fixed:
 
-**Hosting — no Python (easiest):** it's built into the same bundle. Open **`MH3U_Online.exe`** →
-**Host** tab → pick the IP your friends will use (it auto-detects your Radmin / Tailscale / LAN
-address) → **Start Server**, and give friends that IP. Use **Host + Play** to run the server *and*
-join it yourself. `server.exe` already ships in the bundle — nothing extra to download. Full
-details in [docs/HOSTING.md](docs/HOSTING.md).
-
-**Hosting — from source (advanced):** if you'd rather run or modify the server in Python:
-
-```bash
-git clone https://github.com/Matt-Wood-23/mh3u-revival.git
-git clone --branch mh3u-revival https://github.com/Matt-Wood-23/NintendoClients.git external/NintendoClients   # patched fork, not on pip
-cd mh3u-revival
-pip install -r requirements.txt          # pin anynet==1.1.0
-MH3U_ADVERTISE=<your-reachable-ip> python server.py
-```
-
-Binds UDP `1223` (auth) + `1224` (secure). Players point their patched Cemu at
-`<your-reachable-ip>` and join your room.
-
----
-
-## Scope & non-goals
-
-- **Decentralized, not centralized.** Each host runs their own server for their own group.
-  There is intentionally **no** global public matchmaking service to operate (that would be
-  a hosting/cost/moderation/legal commitment this project does not take on).
-- **Private/invite, not public.** Reachability is via a private overlay (Tailscale), or —
-  for hosts who opt in — their own public IP ([docs/PUBLIC_HOSTING.md](docs/PUBLIC_HOSTING.md)).
-  Either way it's invite-only, not "post your IP for the world."
-- **Beta, 4 players/room.** Hunts are 4 (the game's P2P limit). Larger **gathering halls**
-  (default 16, multiple rooms per server) are the current beta test, unlocked now that
-  public-IP hosting makes a bigger crowd reachable.
-- **No resources to host for everyone** — and that's by design; see decentralized, above.
-
----
-
-## Roadmap
-
-Beta is deliberately small (Tailscale, 4 players, one room — the hardened config). Things
-being explored for later — **not promised, and the order isn't fixed**:
-
-- **One-click overlay.** A join-code launcher that sets Tailscale up for the player
-  automatically, so it's "install → paste code → play" with no manual tailnet fiddling.
-- **Relay fallback.** An optional host-run relay for player pairs that can't hole-punch
-  (symmetric NAT / CGNAT), for when even an overlay isn't enough.
-- **First-class Linux support.** The experimental community bundle graduating to a maintained
-  release artifact — ideally CI-built AppImages from the Cemu fork instead of hand-built ones.
-- **Larger lobbies / community hubs.** *In beta testing now* — the gathering hall holds 16
-  by default (`MH3U_HALL_MAX`) with multiple 4-player rooms per server, on the back of the
-  hardened multi-room churn + public-IP hosting. Still to prove: a real hall with many live
-  hunters (roster UI / hall behavior beyond 4), and a shared "hub" server a group points an LFG at.
-- **Mod menu / cheats in online sessions (experimental, untested).** The reverse-engineering
-  behind this project also produced a whole MH3U cheat suite — a full Python **mod menu** plus
-  all kinds of trainers (player / monster / item). I haven't tested any of it **while online**
-  yet, but it could make for some fun multiplayer experiences. I'll get around to trying it
-  online, and release it as a companion if there's interest — say so on the issue tracker.
+- **One-click overlay.** A join-code launcher that sets Tailscale up automatically, so it's
+  "install → paste code → play" with no manual tailnet fiddling.
+- **Relay coverage for every link.** The relay covers host↔guest hunt links. Links between two
+  non-host players in a 3+ player room stay direct, which is why the worst-connected player
+  should create the room. Closing that gap needs client-side work and may not be reachable —
+  analysis in [docs/GUEST_PAIR_PROBLEM.md](docs/GUEST_PAIR_PROBLEM.md).
+- **First-class Linux support.** The community bundle graduating to a maintained release
+  artifact — ideally CI-built AppImages from the Cemu fork rather than hand-built ones.
+- **A shared "hub" server** a group can point an LFG at, on the back of the larger halls.
 
 Have a request? Open an issue.
 
@@ -190,6 +140,25 @@ is the **[mh3u-revival branch of the Cemu fork](https://github.com/Matt-Wood-23/
 
 ---
 
+## ⚠️ Legal / disclaimer
+
+This is an unofficial, **non-commercial** fan project, not affiliated with or endorsed by
+Nintendo or Capcom. Monster Hunter and Monster Hunter 3 Ultimate are trademarks of their
+respective owners.
+
+- It ships **no Nintendo or Capcom code, keys, certificates, or game data.** The online
+  "gate" files it generates are right-sized dummies (zeros + 4-byte empty stubs) that only
+  satisfy Cemu's file-existence check.
+- **Every player supplies their own legal copy/dump** of the game. None is included or
+  distributed.
+- It reimplements an interoperable game server from black-box reverse engineering of
+  publicly-shipped client behavior. The credentials it uses are values baked into the
+  retail game, not secrets.
+
+If you represent a rights-holder with a concern, please open an issue.
+
+---
+
 ## Credits
 
 - [NintendoClients](https://github.com/kinnay/NintendoClients) (Kinnay) — the NEX/PRUDP/RMC
@@ -200,6 +169,12 @@ is the **[mh3u-revival branch of the Cemu fork](https://github.com/Matt-Wood-23/
 - The [Cemu](https://cemu.info) project — the emulator the patched client forks.
 - **jM5557** — the Linux / SteamOS / Steam Deck port: the Cemu-fork AppImage build (and its
   reproducible build recipe) and the `SETUP-ONLINE.sh` launcher.
+- **[Dogchydios](https://github.com/dogchydios)** — the UDP relay. `relay.py`, the
+  `MH3U_RELAY=auto` learning policy in `relay_policy.py`, and the matchmaking hooks that
+  make it work originated in their fork
+  ([mh3u-revival-relay](https://github.com/dogchydios/mh3u-revival-relay)) and are carried
+  here with their commits intact. It's what lets players behind CGNAT hunt together without
+  port forwarding.
 - [cemu-re-mcp](https://github.com/Matt-Wood-23/cemu-re-mcp) — the GDB-stub / pymem
   reverse-engineering bridge used to decode MH3U's online protocol and memory layout.
 - [ghidra-mcp](https://github.com/bethington/ghidra-mcp) (an extended fork of

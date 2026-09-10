@@ -1,5 +1,7 @@
 # Troubleshooting & FAQ
 
+> **On a real Wii U?** Console-specific problems (plugin not loading, setting the server IP, `106-0502`) are in [WIIU_CONSOLE.md](WIIU_CONSOLE.md#troubleshooting).
+
 Fixes for the most-reported problems, all regions and platforms. Setup steps live in
 [PLAYING.md](PLAYING.md) (joining) and [HOSTING.md](HOSTING.md) /
 [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md) (hosting) — this page is only for when something
@@ -128,6 +130,16 @@ else.
    only learn a peer's endpoint from a packet that peer sends, and the affected peer never
    sends. Do not set `MH3U_RELAY_PROBES=all` hoping to fix this — that is the setting that
    ejects the third player.
+
+---
+
+## Greyed-out online checkmark / "not linked to a NNID or PNID"
+
+Tried an earlier build and got stuck on the online checkmark — greyed-out *Network Service*,
+or *"not linked to a NNID or PNID"*? **That's fixed.** Grab the current bundle and open
+`MH3U_Online.exe` → **Join** → *Save + Play*; the launcher sets up (or repairs) your online
+identity on launch, so the green checkmark appears on its own — no Cemu account settings to
+touch.
 
 ---
 

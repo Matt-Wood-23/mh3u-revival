@@ -1,5 +1,10 @@
 # UDP Relay
 
+> **Origin.** The relay started as [Dogchydios](https://github.com/dogchydios)'s fork,
+> [mh3u-revival-relay](https://github.com/dogchydios/mh3u-revival-relay) — `relay.py`, the
+> `auto` learning policy, and the matchmaking hooks are theirs, carried here with their
+> commits intact. What follows documents the version in this repo, including later changes.
+
 This fork adds an optional UDP relay for MH3U gameplay peer links. The normal
 NEX flow advertises each player's direct `StationURL` and relies on UDP NAT
 traversal. That can fail for players behind CGNAT, symmetric NAT, strict router

@@ -1,5 +1,7 @@
 # Joining a host's MH3U Revival game
 
+> **On a real Wii U rather than an emulator?** This page is for Cemu. See [WIIU_CONSOLE.md](WIIU_CONSOLE.md) instead.
+
 You join someone who is hosting. The easiest way is the **MH3U Online Bundle** they give you —
 a ready-to-run patched Cemu with a one-click launcher. No Python, no account to make, no
 Nintendo files, and **online is already switched on for you**. You bring only your

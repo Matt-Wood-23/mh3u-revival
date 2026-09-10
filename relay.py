@@ -4,6 +4,9 @@ The normal NEX path only brokers a direct UDP hole-punch. That cannot reliably c
 CGNAT/symmetric NAT pairs, so this module provides a small pair-scoped relay endpoint:
 both Cemus send their encrypted gameplay UDP to one relay port, and the server forwards
 datagrams to the other observed endpoint.
+
+Originally by Dogchydios (github.com/dogchydios/mh3u-revival-relay), carried here with
+their commits intact and extended since -- see docs/UDP_RELAY_NOTES.md.
 """
 import asyncio
 import logging

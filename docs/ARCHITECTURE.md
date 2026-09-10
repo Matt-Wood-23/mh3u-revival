@@ -178,7 +178,7 @@ we recommend them:
 | **Raw NAT hole-punch** | rely on NEX NATTraversal between two home routers, no overlay | minimal | partial | Best-effort. The reachable-host topology (NAT'd joiner → open host) is **proven on the bare internet** (2026-07, part of the public path above). NAT'd-peer ↔ NAT'd-peer (a joiner-hosted room) remains **(provisional)** — only ever proven *inside* Tailscale, which already flattens NAT. |
 
 The overlay is the **guaranteed fallback**: hole-punch alone can't connect symmetric-NAT
-/ CGNAT players, so an overlay (or a future relay) is required for universal
+/ CGNAT players, so an overlay (or the optional UDP relay, shipped in v0.2.0-beta) is required for universal
 connectivity. "Masking" the overlay behind a join-code launcher so players never see it
 is on the roadmap (§7).
 
@@ -223,7 +223,7 @@ including a cellular-CGNAT joiner P2P-connecting into the host's room
 (a *joiner-hosted* room; the reachable-host direction is proven); the per-port-forward
 variant of the public path (proven in its DMZ/passthrough form).
 
-**Roadmap:** masked overlay (a join-code launcher that hides Tailscale setup); a relay
+**Roadmap:** masked overlay (a join-code launcher that hides Tailscale setup); relay coverage
 fallback for symmetric/CGNAT pairs; larger-capacity / community-hub hosting (under
 investigation — the host explicitly does not run central infra for everyone).
 

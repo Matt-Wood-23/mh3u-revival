@@ -38,6 +38,7 @@ import reaper
 import limits
 import natcheck
 import matchmaking_handlers
+import relay
 
 def _log_dir():
     # Frozen (PyInstaller onefile): sys.executable is the real .exe path (the bundle
@@ -325,6 +326,28 @@ async def main():
     reaper.install_rx_stamp()   # stamp last-inbound time on every PRUDP packet (before serving)
     logger.info("MH3U NEX server  |  game_server_id=0x%08X  access_key=%s  nex_version=%d",
                 config.GAME_SERVER_ID, config.ACCESS_KEY, config.NEX_VERSION)
+    if relay.enabled():
+        logger.info("UDP relay: mode=%s bind=%s ports=%d-%d advertise=%s idle=%.0fs strict=%s",
+                    config.RELAY_MODE, config.HOST, config.RELAY_PORT_START,
+                    config.RELAY_PORT_END, config.RELAY_ADDRESS, config.RELAY_IDLE_TIMEOUT,
+                    "on" if config.RELAY_STRICT else "off")
+        # One relay socket per PEER PAIR, and a 4-player room meshes fully -> 6 pairs.
+        # Warn BEFORE the pool runs dry, because the two failure modes are both nasty:
+        # under force a join is refused (fail-closed, by design), and under auto the
+        # pair silently reverts to direct.
+        if config.RELAY_PORT_START != 0:
+            have = config.RELAY_PORT_END - config.RELAY_PORT_START + 1
+            need = limits.MAX_ROOMS * 6
+            if have < need:
+                logger.warning(
+                    "UDP relay: port pool holds %d ports = %d full 4-player rooms, but "
+                    "MH3U_MAX_ROOMS=%d. At capacity %s. To cover every room set "
+                    "MH3U_RELAY_PORT_END=%d (%d ports), or lower MH3U_MAX_ROOMS to %d.",
+                    have, have // 6, limits.MAX_ROOMS,
+                    "joins will be REFUSED (force mode fails closed rather than leaking "
+                    "real addresses)" if config.RELAY_MODE == "force"
+                    else "pairs quietly fall back to direct P2P",
+                    config.RELAY_PORT_START + need - 1, need, have // 6)
     limits.log_config()   # print the active abuse/DoS guardrail caps at startup
 
     auth = [AuthenticationServer(s)]

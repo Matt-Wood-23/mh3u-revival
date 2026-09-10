@@ -1,0 +1,7 @@
+# MH3U Revival - server address for the Wii U plugin
+# Copy this file to your SD card as:  sd:/wiiu/mh3u_server.txt
+#
+# Replace the line below with YOUR PC's LAN address - the same one the
+# Host tab showed when you started the server. Port stays 1223.
+# IPv4 only: the field this goes into holds 15 characters max.
+192.168.1.42:1223

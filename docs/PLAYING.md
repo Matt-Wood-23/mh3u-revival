@@ -147,33 +147,47 @@ against the wrong `act/80000001` folder.
 
 ## Linux / Steam Deck (experimental)
 
-A community-built **Linux bundle** exists — `MH3U_Online_Linux.zip` on the
+A community-built **Linux bundle** — `MH3U_Online_Linux.zip` on the
 [Releases](https://github.com/Matt-Wood-23/mh3u-revival/releases) page, contributed by
-**jM5557**. It's the same patched Cemu fork built as a Linux **AppImage**, with
-`SETUP-ONLINE.sh` as the Linux join launcher (same identity minting, same host-IP
-prompt) and the same pre-configured `portable/` folder. Works on x86-64 Linux and
-**SteamOS / Steam Deck**.
+**jM5557**. Same patched Cemu fork as an **AppImage**, the same pre-configured `portable/`
+folder, plus a launcher of its own. x86-64 Linux and **SteamOS / Steam Deck**.
+**New in v0.2.0: it can host, not just join** — the server ships in the bundle, so a group
+needs no Windows machine at all.
 
 1. Unzip, then add your dump exactly as in step 3 above (same folder layout, forward
    slashes).
-2. First run, from a terminal in the bundle folder:
-   ```bash
-   chmod +x SETUP-ONLINE.sh
-   ./SETUP-ONLINE.sh
-   ```
-   It mints your identity, asks for the host's IP, and launches Cemu.
-3. Later runs: `./SETUP-ONLINE.sh` again, or just run `Cemu.AppImage` directly — on a
-   Steam Deck you can add it to Steam as a **Non-Steam Game**.
+2. Run `./MH3U_Online` — already executable, no `chmod` needed. Mouse, keyboard
+   (arrows + Enter + Esc) and **controller** (D-Pad + A/B) all work, which is what makes it
+   usable on a Deck.
+
+| Menu item | What it does |
+|---|---|
+| **Join Online** | Asks for the host's IP and mints your online identity (saved in `portable/mh3u_server.txt`) |
+| **Host Server** | Runs the server on this machine — see below |
+| **Launch Game** | Point it at your `.wua` / `.wud` / `.wux` / `.rpx`; it remembers the path and boots straight in |
+| **Launch Cemu** | Just opens Cemu |
+
+**Hosting from Linux.** The Host screen has an **Advertise IP** field (the address your
+players type), a **Relay:** toggle cycling `off` / `auto` / `force`, and Start / Stop /
+**View Server Log**. That's the same relay as the Windows launcher's checkbox — read
+[HOSTING.md](HOSTING.md#optional-the-udp-relay) before enabling it, and with three or more
+players read the room-creator rule in [GUEST_PAIR_PROBLEM.md](GUEST_PAIR_PROBLEM.md) first.
+
+**On a Steam Deck**, run the launcher once in **Desktop mode**, then right-click →
+**Add to Steam** to start it from your library in Gaming Mode.
 
 Everything else on this page (dump layout, saves, troubleshooting, the
-`portable/mh3u_server.txt` IP file) applies unchanged.
+`portable/mh3u_server.txt` IP file) applies unchanged; the Windows antivirus warnings don't.
 
-**Experimental status:** proven by the contributor on SteamOS and Arch via **LAN** play.
-Tailscale (available on Linux) and the public-IP path haven't been tested from a Linux
-joiner yet but are transport-level — expected to work; please report either way. The zip's
-`BUILD.txt` documents the full reproducible build against the
-[Cemu fork](https://github.com/Matt-Wood-23/Cemu/tree/mh3u-revival) if you'd rather build
-the AppImage yourself.
+> **No auto-updater on Linux.** The Windows launcher checks GitHub for new releases; this
+> one doesn't, and the bundle carries no version marker — watch the Releases page and
+> re-download by hand.
+
+**Experimental status:** the port is proven by the contributor on SteamOS and Arch via
+**LAN** play. Hosting from Linux is new in this build and untested by the project — please
+report how it goes. Tailscale and the public-IP path are transport-level and expected to
+work from a Linux joiner. To build the AppImage yourself, the source is the
+[Cemu fork](https://github.com/Matt-Wood-23/Cemu/tree/mh3u-revival).
 
 ---
 

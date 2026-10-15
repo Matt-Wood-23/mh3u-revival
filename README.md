@@ -52,6 +52,16 @@ Prefer to run the server from source in Python, or modify it? That path is in
   [docs/PUBLIC_HOSTING.md](docs/PUBLIC_HOSTING.md).
 - 🧪 **Linux / Steam Deck (experimental)** — a community bundle from **jM5557**
   (`MH3U_Online_Linux.zip`). [docs/PLAYING.md](docs/PLAYING.md#linux--steam-deck-experimental).
+- 🧪 **Android (experimental, join only)** — a community Cemu port by **jM5557** with the
+  revival patches carried over. It joins a host's server by IP but can't host one. Released
+  separately, not in this project's bundle:
+  [jM5557/Cemu-Android-MH3U-Revival](https://github.com/jM5557/Cemu-Android-MH3U-Revival/releases).
+  [docs/PLAYING.md](docs/PLAYING.md#android-experimental).
+- 🧪 **Cemu Enhanced (optional, experimental)** — the same patched Cemu plus save states, pause,
+  cheats, screen layouts and a controller-first Game Mode. Swap it into either bundle; save
+  states and pause are blocked while you're online.
+  [Release](https://github.com/Matt-Wood-23/Cemu/releases/tag/enhanced-v0.1.0) ·
+  [docs/PLAYING.md](docs/PLAYING.md#cemu-enhanced-optional-experimental).
 - ✅ Self-healing room churn — clean leave, hard-drop rejoin and ghost cleanup all recover
   on their own ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §4).
 - 🆕 **Real Wii U consoles** (v0.2.0-beta) — an Aroma plugin points the console at your
@@ -168,7 +178,9 @@ If you represent a rights-holder with a concern, please open an issue.
   (MIT, same as upstream).
 - The [Cemu](https://cemu.info) project — the emulator the patched client forks.
 - **jM5557** — the Linux / SteamOS / Steam Deck port: the Cemu-fork AppImage build (and its
-  reproducible build recipe) and the `SETUP-ONLINE.sh` launcher.
+  reproducible build recipe) and the `SETUP-ONLINE.sh` launcher. Also the Android port
+  ([Cemu-Android-MH3U-Revival](https://github.com/jM5557/Cemu-Android-MH3U-Revival)) and fixes
+  to custom texture loading.
 - **[Dogchydios](https://github.com/dogchydios)** — the UDP relay. `relay.py`, the
   `MH3U_RELAY=auto` learning policy in `relay_policy.py`, and the matchmaking hooks that
   make it work originated in their fork

@@ -60,7 +60,7 @@ Prefer to run the server from source in Python, or modify it? That path is in
 - 🧪 **Cemu Enhanced (optional, experimental)** — the same patched Cemu plus save states, pause,
   cheats, screen layouts and a controller-first Game Mode. Swap it into either bundle; save
   states and pause are blocked while you're online.
-  [Release](https://github.com/Matt-Wood-23/Cemu/releases/tag/enhanced-v0.1.0) ·
+  [Release](https://github.com/Matt-Wood-23/Cemu/releases/tag/enhanced-v0.1.1) ·
   [docs/PLAYING.md](docs/PLAYING.md#cemu-enhanced-optional-experimental).
 - ✅ Self-healing room churn — clean leave, hard-drop rejoin and ghost cleanup all recover
   on their own ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §4).

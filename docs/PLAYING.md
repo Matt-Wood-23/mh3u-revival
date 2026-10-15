@@ -204,7 +204,7 @@ so it can lag a release behind.
 ## Cemu Enhanced (optional, experimental)
 
 A heavier build of the same patched Cemu, released on its own from the
-[Cemu fork](https://github.com/Matt-Wood-23/Cemu/releases/tag/enhanced-v0.1.0) rather than in the bundle. Online play and custom textures work as in the
+[Cemu fork](https://github.com/Matt-Wood-23/Cemu/releases/tag/enhanced-v0.1.1) rather than in the bundle. Online play and custom textures work as in the
 bundle's Cemu, and it adds:
 
 - **Save states**: File → Save state / Load state, 10 slots per game.
@@ -212,7 +212,9 @@ bundle's Cemu, and it adds:
 - **Cheats**: Citra-style cheat files, edited under Tools → Cheats. See jM5557's QOL set below.
 - **Screen layouts**: TV and GamePad arrangements under View → Screen Layout.
 - **Game Mode**: a controller-first launcher (View → Game Mode), and an in-game menu on
-  **F10** or the controller's Guide button.
+  **F10**. From a controller, press Guide (SDL controllers), or hold the menu button for about
+  a second; a quick press of that button still goes to the game. Set the button under
+  Options → Hotkey settings.
 
 Pause, cheats, screen layouts and Game Mode are jM5557's work.
 

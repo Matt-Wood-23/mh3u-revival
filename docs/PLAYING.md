@@ -201,57 +201,6 @@ page. It's early and experimental, and its README asks people not to open issues
 When the online client changes here, the Android build gets the change once jM5557 ports it,
 so it can lag a release behind.
 
-## Cemu Enhanced (optional, experimental)
-
-A heavier build of the same patched Cemu, released on its own from the
-[Cemu fork](https://github.com/Matt-Wood-23/Cemu/releases/tag/enhanced-v0.1.1) rather than in the bundle. Online play and custom textures work as in the
-bundle's Cemu, and it adds:
-
-- **Save states**: File → Save state / Load state, 10 slots per game.
-- **Pause**: File → Pause emulation, plus an option to pause when Cemu loses focus.
-- **Cheats**: Citra-style cheat files, edited under Tools → Cheats. See jM5557's QOL set below.
-- **Screen layouts**: TV and GamePad arrangements under View → Screen Layout.
-- **Game Mode**: a controller-first launcher (View → Game Mode), and an in-game menu on
-  **F10**. From a controller, press Guide (SDL controllers), or hold the menu button for about
-  a second; a quick press of that button still goes to the game. Set the button under
-  Options → Hotkey settings.
-
-Pause, cheats, screen layouts and Game Mode are jM5557's work.
-
-**Online:** save states and pause are blocked while the game is online, because either one
-drops you from the room: a paused game stops answering, and a save state can't hold the
-connection. Go offline first (back to the village) to use them.
-
-**Installing** means swapping the Cemu inside a bundle you already have. Everything else stays,
-including the `portable/` folder with your online setup, saves and server IP.
-
-- **Windows:** in the bundle folder, keep a copy of `Cemu_release.exe`, then put the one from
-  `Cemu-Enhanced-Windows.zip` in its place. The launcher starts it as before.
-- **Linux / Steam Deck:** replace `Cemu.AppImage` with the release's AppImage (`x86_64` for a
-  Deck), renamed to `Cemu.AppImage`, then `chmod +x Cemu.AppImage`.
-
-To go back, put the original file back.
-
-> Save states belong to the build that made them, so after updating Enhanced, older states may
-> refuse to load. Your in-game saves aren't affected.
-
-**jM5557's QOL cheats.** His [MH3U-Cemu-Cheats](https://github.com/jM5557/MH3U-Cemu-Cheats)
-set brings in quality-of-life touches from newer Monster Hunter games: hold A to carve and
-gather, skip the end-of-quest timer, send all rewards to the box, change equipment from Port
-Tanzia's tavern box, and more. To add them, download the file for your game from his repo and
-put it in the bundle's `portable/cheats/` folder (create the folder if it isn't there):
-
-| Game | File |
-|---|---|
-| MH3U US (v32) | `0005000010118300.txt` |
-| MH3U EU (v32) | `0005000010117200.txt` |
-| MH3G JP (v96) | `0005000010104d00.txt` |
-
-The main QOL cheats are on as soon as the file is there; his variants and experimental ones
-start off. Toggle them under Tools → Cheats or Cheats in the in-game menu. Turning one off
-takes effect after a game restart, or straight away by ticking its matching `DISABLE` entry.
-His README describes each one. Back up your save before trying the experimental ones.
-
 ---
 
 No Nintendo files are involved: the online "certs" are 4-byte empty stubs and otp/seeprom

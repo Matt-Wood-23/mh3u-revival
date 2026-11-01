@@ -1,0 +1,110 @@
+[Definition]
+titleIds = 0005000010118300,0005000010117200,0005000010104d00
+name = "FPS Cap (engine frame limiter)"
+path = "Monster Hunter 3 Ultimate/Mods/FPS Cap"
+description = "Engages MH3U's own built-in frame limiter (Capcom shipped it parked at 3000 = uncapped) and normalizes broken per-frame mechanics at the chosen cap. 30 FPS: everything exactly as designed. 45 FPS: middle ground, normalized. 60 FPS (normalized beta): smooth + lance charge stamina drain corrected to design rate (-120/sec) + camera rotation speed corrected to design rate (204.7 deg/s yaw, underwater pitch too) + buff icons beside your name cycle at the design 0.70 s per icon + hammer golf swing out of the Spinning Bludgeon works again (30/45/60) + Alatreon's running turn at the design rate. US v1.3, EU v1.3 and JP v96 (JP untested)."
+version = 7
+
+[Default]
+$fpsCap = 30.0
+$lanceDrain = -4.0
+$camYaw1 = 0x3B20040B
+$camYaw2 = 0x3B20034B
+$camYaw3 = 0x3B2002EB
+$camPitch1 = 0x3B400230
+$camPitch2 = 0x3B400170
+$buffHold = 0x39800014
+$golfA = 0x3D801008
+$golfB = 0xC00CDED0
+$alaTurn0 = 0x39080100
+$alaTurn1 = 0x390AFF00
+$alaTurn2 = 0x390B0180
+$alaTurn3 = 0x390CFE80
+$alaTurn4 = 0x380B0100
+$alaTurn5 = 0x380CFF00
+$alaTurn6 = 0x38050180
+$alaTurn7 = 0x3806FE80
+
+[Preset]
+name = 30 FPS (vanilla-correct)
+$fpsCap = 30.0
+$lanceDrain = -4.0
+$camYaw1 = 0x3B20040B
+$camYaw2 = 0x3B20034B
+$camYaw3 = 0x3B2002EB
+$camPitch1 = 0x3B400230
+$camPitch2 = 0x3B400170
+$buffHold = 0x39800014
+$golfA = 0x3D801008
+$golfB = 0xC00CDED0
+$alaTurn0 = 0x39080100
+$alaTurn1 = 0x390AFF00
+$alaTurn2 = 0x390B0180
+$alaTurn3 = 0x390CFE80
+$alaTurn4 = 0x380B0100
+$alaTurn5 = 0x380CFF00
+$alaTurn6 = 0x38050180
+$alaTurn7 = 0x3806FE80
+
+[Preset]
+name = 45 FPS (middle ground)
+$fpsCap = 45.0
+$lanceDrain = -2.6667
+$camYaw1 = 0x3B200308
+$camYaw2 = 0x3B200278
+$camYaw3 = 0x3B200230
+$camPitch1 = 0x3B400175
+$camPitch2 = 0x3B4000F5
+$buffHold = 0x3980001E
+$golfA = 0x3D801008
+$golfB = 0xC00CDED0
+$alaTurn0 = 0x390800AB
+$alaTurn1 = 0x390AFF55
+$alaTurn2 = 0x390B0100
+$alaTurn3 = 0x390CFF00
+$alaTurn4 = 0x380B00AB
+$alaTurn5 = 0x380CFF55
+$alaTurn6 = 0x38050100
+$alaTurn7 = 0x3806FF00
+
+[Preset]
+name = 60 FPS (normalized beta)
+$fpsCap = 60.0
+$lanceDrain = -2.0
+$camYaw1 = 0x3B20026D
+$camYaw2 = 0x3B2001FA
+$camYaw3 = 0x3B2001C0
+$camPitch1 = 0x3B400118
+$camPitch2 = 0x3B4000B8
+$buffHold = 0x39800029
+$golfA = 0x3D801008
+$golfB = 0xC00CDED0
+$alaTurn0 = 0x39080080
+$alaTurn1 = 0x390AFF80
+$alaTurn2 = 0x390B00C0
+$alaTurn3 = 0x390CFF40
+$alaTurn4 = 0x380B0080
+$alaTurn5 = 0x380CFF80
+$alaTurn6 = 0x380500C0
+$alaTurn7 = 0x3806FF40
+
+[Preset]
+name = Uncapped (stock 3000, for A/B)
+$fpsCap = 3000.0
+$lanceDrain = -4.0
+$camYaw1 = 0x3B20040B
+$camYaw2 = 0x3B20034B
+$camYaw3 = 0x3B2002EB
+$camPitch1 = 0x3B400230
+$camPitch2 = 0x3B400170
+$buffHold = 0x39800014
+$golfA = 0x81890098
+$golfB = 0xC00C0000
+$alaTurn0 = 0x39080100
+$alaTurn1 = 0x390AFF00
+$alaTurn2 = 0x390B0180
+$alaTurn3 = 0x390CFE80
+$alaTurn4 = 0x380B0100
+$alaTurn5 = 0x380CFF00
+$alaTurn6 = 0x38050180
+$alaTurn7 = 0x3806FE80

@@ -79,6 +79,22 @@ upstream Cemu regression) is fixed in the bundle's Cemu since **v0.1.6**. The JP
 
 ---
 
+## Mods & tools
+
+Optional extras that work alongside online play.
+
+- **60 FPS fix** (Cemu graphic pack, in this repo): caps MH3U at 30, 45 or 60 fps using the
+  game's own frame limiter, and fixes what runs at the wrong speed above 30: camera turning,
+  lance charge stamina, buff icons, the hammer golf swing and Alatreon's running turn. US and
+  EU tested, JP not yet. Each player chooses for themselves.
+  [docs/FPS_FIX.md](docs/FPS_FIX.md).
+- **[MH3U Quest Studio](https://github.com/Matt-Wood-23/mh3u-quest-studio)**: a quest editor
+  for monsters, difficulty, rewards, text and more, which can also create new event quests.
+  Online, **event quests come from the host**, so only the host needs them. **Base-game quest
+  edits must be installed by everyone in the room**, since each game reads its own copy.
+
+---
+
 ## Reporting bugs
 
 This is a beta — expect rough edges and bugs that haven't surfaced yet. If you hit one,

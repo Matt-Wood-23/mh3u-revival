@@ -1,0 +1,170 @@
+[MH3U_FpsCap_US_v13]
+moduleMatches = 0x9D2F15E5
+
+; sMain ctor (FUN_0294b318) loads mMaxFps (+0x50) from this rodata float.
+; Stock value 3000.0 = frame limiter parked/uncapped.
+0x100883D0 = .float $fpsCap
+
+; Lance dash-charge stamina drain, per-frame constant (stock -4.0 = -120/sec
+; at the design 30fps; game does NOT delta-scale this one). Found by live
+; patch-bisect 2026-07-14; single-site verified (drain quantum halves).
+0x1007DF84 = .float $lanceDrain
+
+; Camera stick-rotate speed: integer instruction immediates (li rX, imm) in
+; the yaw/pitch target updaters (fn 0x02286F18 yaw, 0x02286890 pitch).
+; step-per-update = imm * ramp-fraction; update runs once per FRAME, not
+; delta-scaled -> 2x speed at 60fps. Values below are full instruction words.
+; Yaw stock 1035/843/747 (T=5 ramp, 1.2x overshoot at 30fps -> 60fps = x0.6);
+; underwater pitch stock 560/368 (T=12 ramp, no overshoot -> 60fps = x0.5).
+; Ground pitch is a discrete notch system - framerate-independent, untouched.
+; Found + live-verified 2026-07-16 (GDB-stub code patch, modal step -621).
+0x02286FA0 = .uint $camYaw1
+0x02286FB4 = .uint $camYaw2
+0x02286FDC = .uint $camYaw3
+0x02286968 = .uint $camPitch1
+0x0228697C = .uint $camPitch2
+
+; Buff icon cycle beside the player's name (HUD): leaf 0x027385E4 (active mask, count, u8 state[2]) =
+; Tri's hud_cond_icon_cycle_step. state[1] counts down once per FRAME from 20 (reloads `li r12, 0x14`
+; at 0x0273865C first pick / 0x0273873C advance) -> 21 frames per icon: 0.70 s at 30, 0.35 s at 60.
+; Reload scaled per preset: 60 -> 41 (42 frames = 0.70 s), 45 -> 30 (0.69 s). Found + emulated live
+; 2026-10-29 (reload 41 measured 0.697 s per icon on screen at 60 fps).
+0x0273865C = .uint $buffHold
+0x0273873C = .uint $buffHold
+
+; Hammer golf swing out of the Spinning Bludgeon (act 0x18 -> 0x1A). At each spin-loop end (motion-window gate,
+; fn 0x0287F638 @0x0287F998) the game does S+0x90 += *[S+0x98] (= delta x 0.5: 1.0 at 30 fps, 0.5 at 60), then
+; installs the golf move list 0x102AD8B4 once S+0x90 >= 2.0 (else the spin keeps list 0x102AD874 = backward swing
+; 0x1B). A per-LOOP counter scaled by the frame step: 1,2,3 at 30 but 0.5,1.0,1.5 at 60 -> the golf list is never
+; installed at 60. Fix: add a constant 1.0 per loop (rodata 0x1007DED0 = 1.0f): `lwz r12,0x98(r9)` -> `lis r12,0x1008`,
+; `lfs f0,0(r12)` -> `lfs f0,-0x2130(r12)` (r12 dead afterwards). Live-tested 2026-10-29 at 60 fps: counter 1,2,3,
+; 5 golf swings in 7 spins. Identical to stock at 30.
+0x0287F99C = .uint $golfA
+0x0287F9A4 = .uint $golfB
+
+; Alatreon running turn (em024, fn 0x0249A790): while running it adds a fixed yaw step to S+0x94 every update
+; (state 1 inside motion window 0x025B9038 / state 2 always): addi +-0x100 / +-0x180 at the 8 sites below ->
+; 2x the turn per second at 60 (a slight turn becomes ~a semicircle). Per preset: 60 = half, 45 = 2/3.
+; Live 2026-10-29 at 60: stock run-turn +0x100/frame x111 = 156 deg (85 deg/s); patched +0x80/frame = 43 deg/s.
+0x0249AB5C = .uint $alaTurn0
+0x0249AB78 = .uint $alaTurn1
+0x0249AB94 = .uint $alaTurn2
+0x0249ABB0 = .uint $alaTurn3
+0x0249AF74 = .uint $alaTurn4
+0x0249AF90 = .uint $alaTurn5
+0x0249AFAC = .uint $alaTurn6
+0x0249AFC8 = .uint $alaTurn7
+
+[MH3U_FpsCap_EU_v13]
+moduleMatches = 0xADA406E7
+
+; sMain ctor (FUN_0294b318) loads mMaxFps (+0x50) from this rodata float.
+; Stock value 3000.0 = frame limiter parked/uncapped.
+0x100883D0 = .float $fpsCap
+
+; Lance dash-charge stamina drain, per-frame constant (stock -4.0 = -120/sec
+; at the design 30fps; game does NOT delta-scale this one). Found by live
+; patch-bisect 2026-07-14; single-site verified (drain quantum halves).
+0x1007DF84 = .float $lanceDrain
+
+; Camera stick-rotate speed: integer instruction immediates (li rX, imm) in
+; the yaw/pitch target updaters (fn 0x02286F18 yaw, 0x02286890 pitch).
+; step-per-update = imm * ramp-fraction; update runs once per FRAME, not
+; delta-scaled -> 2x speed at 60fps. Values below are full instruction words.
+; Yaw stock 1035/843/747 (T=5 ramp, 1.2x overshoot at 30fps -> 60fps = x0.6);
+; underwater pitch stock 560/368 (T=12 ramp, no overshoot -> 60fps = x0.5).
+; Ground pitch is a discrete notch system - framerate-independent, untouched.
+; Found + live-verified 2026-07-16 (GDB-stub code patch, modal step -621).
+0x02286F18 = .uint $camYaw1
+0x02286F2C = .uint $camYaw2
+0x02286F54 = .uint $camYaw3
+0x022868E0 = .uint $camPitch1
+0x022868F4 = .uint $camPitch2
+
+; Buff icon cycle beside the player's name (HUD): leaf 0x027385E4 (active mask, count, u8 state[2]) =
+; Tri's hud_cond_icon_cycle_step. state[1] counts down once per FRAME from 20 (reloads `li r12, 0x14`
+; at 0x0273865C first pick / 0x0273873C advance) -> 21 frames per icon: 0.70 s at 30, 0.35 s at 60.
+; Reload scaled per preset: 60 -> 41 (42 frames = 0.70 s), 45 -> 30 (0.69 s). Found + emulated live
+; 2026-10-29 (reload 41 measured 0.697 s per icon on screen at 60 fps).
+0x027385D4 = .uint $buffHold
+0x027386B4 = .uint $buffHold
+
+; Hammer golf swing out of the Spinning Bludgeon (act 0x18 -> 0x1A). At each spin-loop end (motion-window gate,
+; fn 0x0287F638 @0x0287F998) the game does S+0x90 += *[S+0x98] (= delta x 0.5: 1.0 at 30 fps, 0.5 at 60), then
+; installs the golf move list 0x102AD8B4 once S+0x90 >= 2.0 (else the spin keeps list 0x102AD874 = backward swing
+; 0x1B). A per-LOOP counter scaled by the frame step: 1,2,3 at 30 but 0.5,1.0,1.5 at 60 -> the golf list is never
+; installed at 60. Fix: add a constant 1.0 per loop (rodata 0x1007DED0 = 1.0f): `lwz r12,0x98(r9)` -> `lis r12,0x1008`,
+; `lfs f0,0(r12)` -> `lfs f0,-0x2130(r12)` (r12 dead afterwards). Live-tested 2026-10-29 at 60 fps: counter 1,2,3,
+; 5 golf swings in 7 spins. Identical to stock at 30.
+0x0287F914 = .uint $golfA
+0x0287F91C = .uint $golfB
+
+; Alatreon running turn (em024, fn 0x0249A790): while running it adds a fixed yaw step to S+0x94 every update
+; (state 1 inside motion window 0x025B9038 / state 2 always): addi +-0x100 / +-0x180 at the 8 sites below ->
+; 2x the turn per second at 60 (a slight turn becomes ~a semicircle). Per preset: 60 = half, 45 = 2/3.
+; Live 2026-10-29 at 60: stock run-turn +0x100/frame x111 = 156 deg (85 deg/s); patched +0x80/frame = 43 deg/s.
+0x0249AAD4 = .uint $alaTurn0
+0x0249AAF0 = .uint $alaTurn1
+0x0249AB0C = .uint $alaTurn2
+0x0249AB28 = .uint $alaTurn3
+0x0249AEEC = .uint $alaTurn4
+0x0249AF08 = .uint $alaTurn5
+0x0249AF24 = .uint $alaTurn6
+0x0249AF40 = .uint $alaTurn7
+
+[MH3U_FpsCap_JP_v96]
+moduleMatches = 0x348600A0
+
+; sMain ctor (FUN_0294b318) loads mMaxFps (+0x50) from this rodata float.
+; Stock value 3000.0 = frame limiter parked/uncapped.
+0x10088190 = .float $fpsCap
+
+; Lance dash-charge stamina drain, per-frame constant (stock -4.0 = -120/sec
+; at the design 30fps; game does NOT delta-scale this one). Found by live
+; patch-bisect 2026-07-14; single-site verified (drain quantum halves).
+0x1007DD64 = .float $lanceDrain
+
+; Camera stick-rotate speed: integer instruction immediates (li rX, imm) in
+; the yaw/pitch target updaters (fn 0x02286F18 yaw, 0x02286890 pitch).
+; step-per-update = imm * ramp-fraction; update runs once per FRAME, not
+; delta-scaled -> 2x speed at 60fps. Values below are full instruction words.
+; Yaw stock 1035/843/747 (T=5 ramp, 1.2x overshoot at 30fps -> 60fps = x0.6);
+; underwater pitch stock 560/368 (T=12 ramp, no overshoot -> 60fps = x0.5).
+; Ground pitch is a discrete notch system - framerate-independent, untouched.
+; Found + live-verified 2026-07-16 (GDB-stub code patch, modal step -621).
+0x02286F78 = .uint $camYaw1
+0x02286F8C = .uint $camYaw2
+0x02286FB4 = .uint $camYaw3
+0x02286940 = .uint $camPitch1
+0x02286954 = .uint $camPitch2
+
+; Buff icon cycle beside the player's name (HUD): leaf 0x027385E4 (active mask, count, u8 state[2]) =
+; Tri's hud_cond_icon_cycle_step. state[1] counts down once per FRAME from 20 (reloads `li r12, 0x14`
+; at 0x0273865C first pick / 0x0273873C advance) -> 21 frames per icon: 0.70 s at 30, 0.35 s at 60.
+; Reload scaled per preset: 60 -> 41 (42 frames = 0.70 s), 45 -> 30 (0.69 s). Found + emulated live
+; 2026-10-29 (reload 41 measured 0.697 s per icon on screen at 60 fps).
+0x02738244 = .uint $buffHold
+0x02738324 = .uint $buffHold
+
+; Hammer golf swing out of the Spinning Bludgeon (act 0x18 -> 0x1A). At each spin-loop end (motion-window gate,
+; fn 0x0287F638 @0x0287F998) the game does S+0x90 += *[S+0x98] (= delta x 0.5: 1.0 at 30 fps, 0.5 at 60), then
+; installs the golf move list 0x102AD8B4 once S+0x90 >= 2.0 (else the spin keeps list 0x102AD874 = backward swing
+; 0x1B). A per-LOOP counter scaled by the frame step: 1,2,3 at 30 but 0.5,1.0,1.5 at 60 -> the golf list is never
+; installed at 60. Fix: add a constant 1.0 per loop (rodata 0x1007DED0 = 1.0f): `lwz r12,0x98(r9)` -> `lis r12,0x1008`,
+; `lfs f0,0(r12)` -> `lfs f0,-0x2130(r12)` (r12 dead afterwards). Live-tested 2026-10-29 at 60 fps: counter 1,2,3,
+; 5 golf swings in 7 spins. Identical to stock at 30.
+0x0287F42C = .uint $golfA
+0x0287F434 = .uint 0xC00CDCB0
+
+; Alatreon running turn (em024, fn 0x0249A790): while running it adds a fixed yaw step to S+0x94 every update
+; (state 1 inside motion window 0x025B9038 / state 2 always): addi +-0x100 / +-0x180 at the 8 sites below ->
+; 2x the turn per second at 60 (a slight turn becomes ~a semicircle). Per preset: 60 = half, 45 = 2/3.
+; Live 2026-10-29 at 60: stock run-turn +0x100/frame x111 = 156 deg (85 deg/s); patched +0x80/frame = 43 deg/s.
+0x0249B050 = .uint $alaTurn0
+0x0249B06C = .uint $alaTurn1
+0x0249B088 = .uint $alaTurn2
+0x0249B0A4 = .uint $alaTurn3
+0x0249B468 = .uint $alaTurn4
+0x0249B484 = .uint $alaTurn5
+0x0249B4A0 = .uint $alaTurn6
+0x0249B4BC = .uint $alaTurn7

@@ -42,7 +42,7 @@ players — do not need to forward anything.
 
 2. **Boot Aroma.** At the Wii U menu you should see a notification:
 
-   > `MH3U Revival v0.4.0 loaded - no server address set yet (L + DPAD-Down + Minus)`
+   > `MH3U Revival v0.x.x loaded - no server address set yet (L + DPAD-Down + Minus)`
 
    If you see *nothing at all*, the plugin is not loading — jump to Troubleshooting.
 
@@ -51,10 +51,11 @@ players — do not need to forward anything.
 
    | Row | What to do |
    |---|---|
-   | **Server IP address** | **A** to edit, **left/right** between the four numbers, **up/down** to change one, **A** to confirm |
-   | **Server port** | Leave at **1223** unless your host says otherwise |
+   | **Connect to MH3U Revival** | Leave **on**. Turn it off to use Pretendo or another network instead (see below) |
+   | **Server IP address** | **A** to edit, **left/right** between the four numbers, **up/down** to change one (hold to scroll), **A** to confirm |
+   | **Server port** | Leave at **1223** unless your host says otherwise. Same controls as the IP row: **A**, **left/right** to pick a digit, **up/down** (hold to scroll), **A** to confirm, **B** to cancel |
 
-   Press **B** to close. Everything below those two rows is read-only status.
+   Press **B** to close. Everything below those rows is read-only status.
 
    > The `In use:` row only refreshes when you **reopen** the menu — that is normal. Close
    > it and open it again to confirm your address took.
@@ -93,6 +94,24 @@ There is also an optional `sd:/wiiu/mh3u_server.txt` (one line, `<ip>` or `<ip>:
 if you prefer editing a file. **You do not need it** — the config menu is the normal way.
 If you use both, whichever you edited most recently wins, and the menu's `Set from:` row
 tells you which one is currently in effect.
+
+---
+
+## Turning it off (Pretendo, or another network)
+
+If you also play MH3U on **Pretendo**, you do not need to delete the plugin. Open the config
+menu (**L + DPAD-Down + Minus** → **MH3U Revival**), set **Connect to MH3U Revival** to
+**off**, and press **B** to close. The plugin then leaves MH3U alone and the game goes
+wherever your console would normally send it — Pretendo, if you have Inkay installed.
+
+- It applies the next time MH3U connects. Simplest: switch it before starting MH3U, or
+  restart the game after switching.
+- The choice is saved on the console. Turn it back **on** the same way to return to Revival.
+- Your server address is kept while it is off.
+
+> Requires plugin v0.5.0 or later. On older versions, recent Aroma builds can switch a whole
+> plugin off from their own menu: open the config menu, press **X** (*Manage plugins*),
+> select **MH3U Revival**, press **A** to toggle it, then **+** to apply.
 
 ---
 

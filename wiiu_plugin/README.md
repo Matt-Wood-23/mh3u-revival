@@ -87,6 +87,33 @@ which retries at the next entry point if the API reports `INTERNAL_NOT_INITIALIZ
 The config menu reports whether storage answered, so a wrong guess is visible rather
 than silent.
 
+## v0.5.0 — on/off switch and a faster port editor (tester feedback)
+
+**On/off switch.** Before v0.5.0 the only way to stop the redirect was to delete the
+`.wps` from the SD card, so a player who also tests on **Pretendo** could not reach
+Pretendo's MH3U server with this plugin installed. The menu's first row is now
+**Connect to MH3U Revival** (on/off, stored as `enabled` in WUPS storage, default on).
+When off, the token hook simply calls the real `AcquireNexServiceToken`, so the request
+goes wherever the console would normally send it — Pretendo, if Inkay is loaded. The
+hook reads the flag on every call, so the switch needs no reboot or plugin reload; it
+applies the next time MH3U connects.
+
+**Port editor.** The stock `WUPSConfigItemIntegerRange` moves one step per D-pad press
+with no hold-repeat (and ±50 on L/R), so going from 1223 to a five-digit port took
+thousands of presses. The port row is now a custom config item with the same controls
+as the stock IP row: **A** to edit, **left/right** to pick a digit, **up/down** to change
+it (hold to repeat), **A** to accept, **B** to cancel. Digits wrap 0–9, and any value
+outside 1–65535 is skipped, so the row can never show an unusable port.
+
+The port editor's logic sits between `port-editor-core` markers in `src/main.cpp`, and
+`tests/port_test.cpp` compiles that block directly (no hand-copied duplicate to drift).
+It checks every port × digit × direction exhaustively, plus tap, hold-repeat, cancel and
+accept sequences — see *Building*.
+
+**Hardware-tested (2026-11-02)** by the tester who asked for it, on a real console with
+Inkay: switch off → MH3U reached Pretendo; switch on → redirected to the set server again.
+They also edited all five port digits with no problems.
+
 ## Installing
 
 1. Copy `mh3u_revival.wps` to `sd:/wiiu/environments/aroma/plugins/`
@@ -98,19 +125,21 @@ than silent.
    - **SD card:** create `sd:/wiiu/mh3u_server.txt` containing the address (see below).
 4. Launch MH3U, enter Network Mode
 
-To uninstall, delete the `.wps`. The plugin only acts on MH3U's server-id and stays
-silent for every other title.
+To stop using it without uninstalling (e.g. to play on Pretendo), set **Connect to
+MH3U Revival** to **off** in the config menu (v0.5.0+). To uninstall, delete the `.wps`.
+The plugin only acts on MH3U's server-id and stays silent for every other title.
 
 ## Configuration
 
 ### On-console (v0.4.0+) — the normal way
 
-Hold **L + DPAD-Down + Minus** → **MH3U Revival**. The first two rows are editable:
+Hold **L + DPAD-Down + Minus** → **MH3U Revival**. The first three rows are editable:
 
 | Row | Notes |
 |---|---|
-| **Server IP address** | Press **A** to edit, **left/right** to move between octets, **up/down** to change one, **A** to confirm |
-| **Server port** | Defaults to 1223, which is what the server uses. Rarely needs touching |
+| **Connect to MH3U Revival** | on/off (v0.5.0+). Off = MH3U is not redirected, so Pretendo or any other network works |
+| **Server IP address** | Press **A** to edit, **left/right** to move between octets, **up/down** to change one (hold to repeat), **A** to confirm |
+| **Server port** | Defaults to 1223, which is what the server uses. Same controls as the IP row, per digit (v0.5.0+) |
 
 The rows below are read-only status, including **Set from:**, which names whichever
 source the running value came from. Changes are saved on the console and survive a
@@ -149,8 +178,9 @@ confused with "the plugin ran but could not write":
 
 | When | Message |
 |---|---|
-| Wii U menu | `MH3U Revival v0.4.0 active - server <host>:<port>` — proof of life |
+| Wii U menu | `MH3U Revival v0.x.x active - server <host>:<port>` — proof of life |
 | Wii U menu, red | Loaded, but no server address is set anywhere |
+| Wii U menu / MH3U start | `... is OFF` — switched off in the config menu, not redirecting |
 | MH3U start | `will redirect NEX to <host>:<port>` |
 | Hook fires | `NEX token redirected -> <host>:<port>` (first 2 only, to avoid burying the screen) |
 
@@ -168,6 +198,7 @@ sees it even with no SD write access.
 |---|---|
 | `[cfg]` | Which endpoint was parsed, and any rejected input |
 | `[nex] REDIRECTED` | **The hook fired.** The game asked for MH3U's token and got ours |
+| `[nex] plugin OFF` | The switch is off, so MH3U's request was passed to the real function untouched |
 | `[nex] passthrough` | The game asked for a *different* server-id (should not happen in MH3U) |
 | `[act] GetPrincipalId` | The console's real NNID PID — match this against the server log |
 | `[act] HasNfsAccount` | Cemu hardcodes this true; this is what real hardware says |
@@ -182,6 +213,15 @@ docker run --rm -v "$PWD:/project" mh3u-revival-plugin make
 ```
 
 Output: `mh3u_revival.wps`.
+
+Host-side test for the port editor (the image has a host `g++`):
+
+```sh
+docker run --rm -v "$PWD:/project" mh3u-revival-plugin sh tests/run_port_test.sh
+```
+
+On Windows, mount from a normal drive path such as `E:/...`; a mount from the user Temp
+folder hung without starting the container.
 
 The toolchain images are pinned in the `Dockerfile`
 (`devkitppc:20260225` + `wiiupluginsystem:20260418` + `libnotifications:20260404`).

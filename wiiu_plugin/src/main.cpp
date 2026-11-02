@@ -82,12 +82,30 @@
  * than depend on either reading, every storage access goes through
  * storageReady(), which retries on the next entry point if the API reports
  * INTERNAL_NOT_INITIALIZED, and logs which attempt succeeded.
+ *
+ * ---------------------------------------------------------------------------
+ * v0.5.0 -- tester feedback: an on/off switch, and a faster port editor.
+ *
+ * On/off: there was no way to stop the redirect short of deleting the .wps
+ * from the SD card, so a player who also uses Pretendo could not reach
+ * Pretendo's MH3U server. The menu now has "Connect to MH3U Revival". When it
+ * is off the token hook just calls the real function, so the request goes
+ * wherever the console would normally send it (Pretendo, if Inkay is loaded).
+ * The hook reads the flag on every call, so the switch applies the next time
+ * MH3U goes online -- no reboot or plugin reload. Stored in WUPS storage
+ * ("enabled", default on).
+ *
+ * Port: the stock WUPSConfigItemIntegerRange moves one step per press with no
+ * hold-repeat, so getting from 1223 to e.g. 50000 took thousands of presses.
+ * The port row is now a custom item that edits digit by digit with the same
+ * controls as the IP row: A to edit, LEFT/RIGHT to pick a digit, UP/DOWN
+ * (hold to repeat) to change it, A to accept, B to cancel.
  */
 
 #include <wups.h>
 
+#include <wups/config/WUPSConfigItemBoolean.h>
 #include <wups/config/WUPSConfigItemIPAddress.h>
-#include <wups/config/WUPSConfigItemIntegerRange.h>
 #include <wups/config/WUPSConfigItemStub.h>
 #include <wups/config_api.h>
 #include <wups/storage.h>
@@ -103,7 +121,7 @@
 #include <cstdlib>
 #include <cstring>
 
-#define PLUGIN_VERSION "v0.4.0"
+#define PLUGIN_VERSION "v0.5.0"
 
 WUPS_PLUGIN_NAME("MH3U Revival");
 WUPS_PLUGIN_DESCRIPTION("Redirects Monster Hunter 3 Ultimate's NEX token to a self-hosted revival server.");
@@ -125,6 +143,7 @@ WUPS_USE_STORAGE(STORAGE_ID);
 #define KEY_PORT     "server_port"    // u32     - ...and its port
 #define KEY_TXT_HOST "txt_host_seen"  // string  - mh3u_server.txt as of our last adopt
 #define KEY_TXT_PORT "txt_port_seen"  // u32
+#define KEY_ENABLED  "enabled"        // bool    - false = pass MH3U through untouched
 
 // MH3U's NEX game-server-id, identical across US/EU/JP -- gating on this is
 // region-agnostic (the titleId list below is belt-and-suspenders only).
@@ -176,6 +195,10 @@ enum CfgSource {
 static char     gHost[HOST_MAX] = DEFAULT_HOST;
 static uint16_t gPort           = DEFAULT_PORT;
 static bool     gIsMH3U         = false;
+// The on/off switch. Read by the token hook on every call, so a change applies
+// the next time MH3U goes online. Defaults to on: installing the plugin is
+// itself the opt-in.
+static bool     gEnabled        = true;
 
 // Diagnostics surfaced in the config menu and in notifications.
 static bool      gNotifyReady    = false;
@@ -369,6 +392,30 @@ static void storePut(const char *hostKey, const char *host, const char *portKey,
     }
 }
 
+// Only a successful read overwrites gEnabled. NOT_FOUND (never toggled) and an
+// unavailable storage both keep the in-memory value, so a switch flipped this
+// session still holds even if it could not be saved.
+static void storeLoadEnabled() {
+    if (!storageReady()) {
+        return;
+    }
+    bool v = true;
+    if (WUPSStorageAPI_GetBool(nullptr, KEY_ENABLED, &v) == WUPS_STORAGE_ERROR_SUCCESS) {
+        gEnabled = v;
+    }
+}
+
+static void storeSaveEnabled(bool on) {
+    if (!storageReady()) {
+        return;
+    }
+    WUPSStorageError a = WUPSStorageAPI_StoreBool(nullptr, KEY_ENABLED, on);
+    WUPSStorageError b = WUPSStorageAPI_SaveStorage(false);
+    if (a != WUPS_STORAGE_ERROR_SUCCESS || b != WUPS_STORAGE_ERROR_SUCCESS) {
+        plog("[store] write %s failed (value=%d save=%d)", KEY_ENABLED, (int) a, (int) b);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // mh3u_server.txt: "<host>" or "<host>:<port>" on the first non-comment line,
 // plus optional "key=value" flag lines. Mirrors the Cemu fork's file so a
@@ -521,9 +568,12 @@ static void loadConfig() {
     } else {
         snprintf(gStatusLine, sizeof(gStatusLine), "NOT SET - open this menu to set it");
     }
-    plog("[cfg] endpoint = %s:%u (source=%s, txt=%d, stored=%d, storage=%d)",
+
+    storeLoadEnabled();
+
+    plog("[cfg] endpoint = %s:%u (source=%s, txt=%d, stored=%d, storage=%d, enabled=%d)",
          gHost, (unsigned) gPort, sourceName(gSource),
-         (int) haveTxt, (int) haveStored, (int) gStorageOk);
+         (int) haveTxt, (int) haveStored, (int) gStorageOk, (int) gEnabled);
 }
 
 // ---------------------------------------------------------------------------
@@ -535,6 +585,14 @@ DECL_FUNCTION(uint32_t, AcquireNexServiceToken, ACTNexAuthenticationResult *toke
         if (gIsMH3U) {
             plog("[nex] passthrough serverId=0x%08x -> result=0x%08x", serverId, r);
         }
+        return r;
+    }
+
+    if (!gEnabled) {
+        // Switched off in the menu: behave as if this plugin were not installed,
+        // so Pretendo (via Inkay) or any other network gets the request.
+        uint32_t r = real_AcquireNexServiceToken(token, serverId);
+        plog("[nex] plugin OFF - passed through serverId=0x%08x -> result=0x%08x", serverId, r);
         return r;
     }
 
@@ -615,7 +673,7 @@ static void onServerIpChanged(ConfigItemIPAddress *, uint32_t ip) {
     plog("[cfg] server address set to %s from the console config menu", gHost);
 }
 
-static void onServerPortChanged(ConfigItemIntegerRange *, int32_t port) {
+static void onServerPortChanged(uint32_t port) {
     if (port < 1 || port > 65535) {
         return;
     }
@@ -625,6 +683,206 @@ static void onServerPortChanged(ConfigItemIntegerRange *, int32_t port) {
     plog("[cfg] server port set to %u from the console config menu", (unsigned) gPort);
 }
 
+static void onEnabledChanged(ConfigItemBoolean *, bool on) {
+    gEnabled = on;
+    storeSaveEnabled(on);
+    plog("[cfg] switched %s from the console config menu", on ? "ON" : "OFF");
+}
+
+// ---------------------------------------------------------------------------
+// Port editor item. Replaces WUPSConfigItemIntegerRange, which steps by 1 per
+// press with no hold-repeat. Same controls as the stock IP row above it:
+//   A          start editing (cursor on the leftmost digit)
+//   LEFT/RIGHT pick a digit (wraps)
+//   UP/DOWN    change that digit; hold to repeat
+//   A / B      accept / cancel
+// Digits wrap 0..9 and any result outside 1..65535 is skipped, so the value
+// shown is always a usable port.
+// ---------------------------------------------------------------------------
+// port-editor-core begin -- tests/port_test.cpp compiles this block as-is.
+#define PORT_DIGITS       5
+#define PORT_REPEAT_DELAY 15 // frames UP/DOWN must be held before it repeats
+#define PORT_REPEAT_EVERY 4  // frames between repeats after that
+
+struct PortItem {
+    uint32_t value;           // shown in the menu
+    uint32_t valueAtCreation; // compared on close to decide whether to save
+    uint32_t valueBeforeEdit; // restored by B
+    int      cursor;          // -1 = not editing, else 0 (leftmost) .. PORT_DIGITS-1
+    int      frameTimer;
+};
+
+static const uint32_t kPortPow10[PORT_DIGITS] = {10000, 1000, 100, 10, 1};
+
+static uint32_t portDigit(uint32_t v, int pos) {
+    return (v / kPortPow10[pos]) % 10;
+}
+
+// Move one digit up (+1) or down (-1), skipping results that are not a valid
+// port. Always terminates: the loop visits all ten digits, including the
+// current one, whose value is already valid.
+static uint32_t portStepDigit(uint32_t value, int pos, int delta) {
+    const uint32_t d    = portDigit(value, pos);
+    const uint32_t base = value - d * kPortPow10[pos];
+    int            nd   = (int) d;
+    for (int i = 0; i < 10; i++) {
+        nd                  = (nd + delta + 10) % 10;
+        const uint32_t cand = base + (uint32_t) nd * kPortPow10[pos];
+        if (cand >= 1 && cand <= 65535) {
+            return cand;
+        }
+    }
+    return value;
+}
+
+static void portRender(const PortItem *it, bool selected, char *out, int32_t n) {
+    if (it->cursor < 0) {
+        if (selected) {
+            snprintf(out, n, "(Press A to edit) %u", (unsigned) it->value);
+        } else {
+            snprintf(out, n, "%u", (unsigned) it->value);
+        }
+        return;
+    }
+    // Editing: all five digits with leading zeros, the cursor digit in brackets.
+    char digits[PORT_DIGITS];
+    for (int i = 0; i < PORT_DIGITS; i++) {
+        digits[i] = (char) ('0' + portDigit(it->value, i));
+    }
+    const int c = it->cursor;
+    snprintf(out, n, "%.*s[%c]%.*s", c, digits, digits[c], PORT_DIGITS - c - 1, digits + c + 1);
+}
+
+static int32_t portGetDisplay(void *ctx, char *out, int32_t n) {
+    portRender(static_cast<PortItem *>(ctx), false, out, n);
+    return 0;
+}
+
+static int32_t portGetSelectedDisplay(void *ctx, char *out, int32_t n) {
+    portRender(static_cast<PortItem *>(ctx), true, out, n);
+    return 0;
+}
+
+static void portOnInput(void *ctx, WUPSConfigSimplePadData in) {
+    auto *it = static_cast<PortItem *>(ctx);
+
+    if (it->cursor < 0) {
+        if (in.buttons_d & WUPS_CONFIG_BUTTON_A) {
+            it->valueBeforeEdit = it->value;
+            it->cursor          = 0;
+            it->frameTimer      = 0;
+        }
+        return;
+    }
+
+    if (in.buttons_d & (WUPS_CONFIG_BUTTON_A | WUPS_CONFIG_BUTTON_B)) {
+        if (in.buttons_d & WUPS_CONFIG_BUTTON_B) {
+            it->value = it->valueBeforeEdit;
+        }
+        it->cursor = -1;
+        return;
+    }
+
+    if (in.buttons_d & WUPS_CONFIG_BUTTON_LEFT) {
+        it->cursor = (it->cursor + PORT_DIGITS - 1) % PORT_DIGITS;
+        return;
+    }
+    if (in.buttons_d & WUPS_CONFIG_BUTTON_RIGHT) {
+        it->cursor = (it->cursor + 1) % PORT_DIGITS;
+        return;
+    }
+
+    // onInput runs every frame while this row is selected, which is what
+    // makes the hold-to-repeat timer work (same scheme as the stock IP item).
+    const bool up   = (in.buttons_h & WUPS_CONFIG_BUTTON_UP) != 0;
+    const bool down = (in.buttons_h & WUPS_CONFIG_BUTTON_DOWN) != 0;
+    if (!up && !down) {
+        it->frameTimer = 0;
+        return;
+    }
+    bool step = false;
+    if (in.buttons_d & (WUPS_CONFIG_BUTTON_UP | WUPS_CONFIG_BUTTON_DOWN)) {
+        step           = true; // fresh press: change once, then wait
+        it->frameTimer = PORT_REPEAT_DELAY;
+    } else if (it->frameTimer > 0) {
+        it->frameTimer--;
+    } else {
+        step           = true; // held past the delay: repeat
+        it->frameTimer = PORT_REPEAT_EVERY;
+    }
+    if (step) {
+        it->value = portStepDigit(it->value, it->cursor, up ? 1 : -1);
+    }
+}
+
+static bool portIsMovementAllowed(void *ctx) {
+    // While editing, UP/DOWN change the digit instead of moving between rows,
+    // and B cancels the edit instead of leaving the menu.
+    return static_cast<PortItem *>(ctx)->cursor < 0;
+}
+// port-editor-core end
+
+static void portRestoreDefault(void *ctx) {
+    auto *it   = static_cast<PortItem *>(ctx);
+    it->value  = DEFAULT_PORT;
+    it->cursor = -1;
+}
+
+static void portOnClose(void *ctx) {
+    auto *it = static_cast<PortItem *>(ctx);
+    if (it->cursor >= 0) {
+        it->value = it->valueBeforeEdit; // menu closed mid-edit: not accepted with A
+    }
+    if (it->value != it->valueAtCreation) {
+        onServerPortChanged(it->value);
+    }
+}
+
+static void portOnDelete(void *ctx) {
+    free(ctx);
+}
+
+static void addPortItem(WUPSConfigCategoryHandle cat, const char *name, uint16_t current) {
+    auto *it = static_cast<PortItem *>(malloc(sizeof(PortItem)));
+    if (!it) {
+        plog("[cfg] port item: out of memory");
+        return;
+    }
+    it->value           = current;
+    it->valueAtCreation = current;
+    it->valueBeforeEdit = current;
+    it->cursor          = -1;
+    it->frameTimer      = 0;
+
+    const WUPSConfigAPIItemCallbacksV2 callbacks = {
+            .getCurrentValueDisplay         = &portGetDisplay,
+            .getCurrentValueSelectedDisplay = &portGetSelectedDisplay,
+            .onSelected                     = nullptr,
+            .restoreDefault                 = &portRestoreDefault,
+            .isMovementAllowed              = &portIsMovementAllowed,
+            .onCloseCallback                = &portOnClose,
+            .onInput                        = &portOnInput,
+            .onInputEx                      = nullptr,
+            .onDelete                       = &portOnDelete,
+    };
+    const WUPSConfigAPIItemOptionsV2 options = {
+            .displayName = name,
+            .context     = it,
+            .callbacks   = callbacks,
+    };
+
+    WUPSConfigItemHandle handle;
+    if (WUPSConfigAPI_Item_Create(options, &handle) != WUPSCONFIG_API_RESULT_SUCCESS) {
+        plog("[cfg] port item: create failed");
+        free(it);
+        return;
+    }
+    if (WUPSConfigAPI_Category_AddItem(cat, handle) != WUPSCONFIG_API_RESULT_SUCCESS) {
+        plog("[cfg] port item: add failed");
+        WUPSConfigAPI_Item_Destroy(handle); // calls portOnDelete, which frees it
+    }
+}
+
 static WUPSConfigAPICallbackStatus ConfigMenuOpened(WUPSConfigCategoryHandle root) {
     char buf[128];
 
@@ -632,7 +890,12 @@ static WUPSConfigAPICallbackStatus ConfigMenuOpened(WUPSConfigCategoryHandle roo
     // file since boot, and the editable item below has to show the live value.
     loadConfig();
 
-    // --- the editable pair, first so it is what the D-pad lands on ---
+    // --- the on/off switch first, so a Pretendo user finds it at once ---
+    WUPSConfigItemBoolean_AddToCategoryEx(root, "enabled", "Connect to MH3U Revival",
+                                          true /* default on */, gEnabled,
+                                          &onEnabledChanged, "on", "off");
+
+    // --- then the editable address pair ---
     uint32_t   ipValue    = 0;
     const bool hostIsIPv4 = ipFromString(gHost, &ipValue);
 
@@ -640,12 +903,19 @@ static WUPSConfigAPICallbackStatus ConfigMenuOpened(WUPSConfigCategoryHandle roo
                                           0 /* default 0.0.0.0 */, ipValue,
                                           &onServerIpChanged);
 
-    WUPSConfigItemIntegerRange_AddToCategory(root, "server_port", "Server port",
-                                             DEFAULT_PORT, (int32_t) gPort,
-                                             1, 65535, &onServerPortChanged);
+    addPortItem(root, "Server port", gPort);
+
+    // Item callbacks only fire when the menu closes, so the rows below keep
+    // showing the old values until it is reopened. Say so.
+    WUPSConfigItemStub_AddToCategory(root, "Changes apply when you close this menu.");
+    WUPSConfigItemStub_AddToCategory(root, "Off = MH3U uses its normal online (e.g. Pretendo).");
 
     // --- read-only status below ---
-    snprintf(buf, sizeof(buf), "In use: %s:%u", gHost, (unsigned) gPort);
+    if (gEnabled) {
+        snprintf(buf, sizeof(buf), "In use: %s:%u", gHost, (unsigned) gPort);
+    } else {
+        snprintf(buf, sizeof(buf), "In use: nothing - switched off");
+    }
     WUPSConfigItemStub_AddToCategory(root, buf);
 
     snprintf(buf, sizeof(buf), "Set from: %s", sourceName(gSource));
@@ -684,7 +954,9 @@ static void ConfigMenuClosed() {
     // The item callbacks have already applied and stored any edit; this just
     // re-derives the status line and picks up an SD file swapped while open.
     loadConfig();
-    if (gHaveEndpoint) {
+    if (!gEnabled) {
+        notify(false, "MH3U Revival is OFF - MH3U will use its normal online (e.g. Pretendo)");
+    } else if (gHaveEndpoint) {
         notify(false, "MH3U Revival: server set to %s:%u", gHost, (unsigned) gPort);
     }
 }
@@ -734,7 +1006,10 @@ ON_APPLICATION_START() {
     if (isWiiUMenu) {
         // One-line proof of life at the system menu: if the tester sees this,
         // the plugin is installed and loaded, full stop.
-        if (gHaveEndpoint) {
+        if (!gEnabled) {
+            notify(false, "MH3U Revival %s is OFF - turn on with L + DPAD-Down + Minus",
+                   PLUGIN_VERSION);
+        } else if (gHaveEndpoint) {
             notify(false, "MH3U Revival %s active - server %s:%u",
                    PLUGIN_VERSION, gHost, (unsigned) gPort);
         } else {
@@ -748,7 +1023,11 @@ ON_APPLICATION_START() {
     plog("=== MH3U Revival plugin %s -- titleId=0x%016llx ===",
          PLUGIN_VERSION, (unsigned long long) titleId);
 
-    if (gHaveEndpoint) {
+    if (!gEnabled) {
+        plog("[cfg] switched OFF - MH3U will not be redirected");
+        notify(false, "MH3U Revival %s is OFF - MH3U will use its normal online (e.g. Pretendo)",
+               PLUGIN_VERSION);
+    } else if (gHaveEndpoint) {
         notify(false, "MH3U Revival %s - will redirect NEX to %s:%u",
                PLUGIN_VERSION, gHost, (unsigned) gPort);
     } else {

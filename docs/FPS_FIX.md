@@ -46,11 +46,31 @@ a high-refresh monitor. Cemu's `log.txt` (in the same Cemu folder) also has a li
 
 ## Game versions
 
-- **US v1.3 and EU v1.3**: tested in-game.
-- **JP (MH3G HD Ver. v96)**: included but not tested yet.
+- **US and EU**: tested in-game.
+- **JP (MH3G HD Ver.)**: included but not tested yet.
 
-The patches target the v1.3 update (shown as **v32** in Cemu's game list for US and EU). If the
-update isn't installed, the pack does nothing.
+The pack needs the game's latest update: **v32** in Cemu's game list for US and EU (sometimes
+labelled Ver. 1.02, which is the same update), or **v96** for JP. Without it, the pack does
+nothing.
+
+## Not working?
+
+If the 30 FPS preset doesn't cap your frame rate either, the pack isn't loading. Check:
+
+1. **Is FPS Cap ticked?** Picking a preset isn't enough; the box next to it must be checked.
+   Restart the game after any change.
+2. **Is the update installed?** Cemu's game list should show **v32** (or **v96** for JP).
+3. **Is your game modded?** Mods that edit the game's main file (`code\MH3G_Cafe_*.rpx`), such
+   as true raw patches, stop the pack from loading, because it only works on the unmodified
+   file. Turn those mods off or restore the original file. Mods installed as Cemu graphic
+   packs don't cause this.
+
+To be sure, start the game and open Cemu's `log.txt` (File → Open Cemu folder):
+
+- `Applying patch group 'MH3U_FpsCap_...'` means the pack loaded.
+- If that line is missing, find `Loaded module 'mh3g_cafe_...' with checksum`. The number
+  should be `0x9d2f15e5` (US), `0xada406e7` (EU) or `0x348600a0` (JP). Any other number means
+  your game file isn't the standard one.
 
 ## Online
 

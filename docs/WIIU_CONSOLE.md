@@ -22,6 +22,14 @@ reachable on their **public IP**, which means port-forwarding. See
 This affects the **server operator only**. Other players — including other console
 players — do not need to forward anything.
 
+**Hosting and playing on your own Wii U?** Give friends your **public** IP (run
+`curl.exe -4 ifconfig.me` on the server PC), not the `192.168.x.x` address `ipconfig`
+shows. That one only works inside your home, which is why your own console connects and
+nobody else can. On your console, keep the server PC's `192.168.x.x` address. In the
+launcher, type the public IP into **"or type any IP"** and tick the relay. The ports to
+open, and the NAT-loopback catch for your own console, are in
+[PUBLIC_HOSTING.md](PUBLIC_HOSTING.md).
+
 ---
 
 ## What you need
@@ -132,6 +140,11 @@ the host gave you.
 **`106-0612`.**
 You reached the server but the room join failed. Usually the "who creates the room" problem
 above.
+
+**I host, my Wii U connects, but nobody else can.**
+You gave friends your home (LAN) address, such as `192.168.1.50`. Give them your public IP
+instead, and open the ports in [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md). See "Hosting and
+playing on your own Wii U?" near the top of this page.
 
 **It worked yesterday and now it doesn't.**
 If your host is on a home connection their public IP may have changed. Ask them to check,

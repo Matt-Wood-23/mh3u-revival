@@ -26,7 +26,15 @@ What has to be reachable on the host, all **UDP**:
 |---|---|
 | `1223` | NEX auth server |
 | `1224` | NEX secure server (matchmaking) |
-| dynamic | your Cemu's P2P port (game picks it per session — see the firewall step) |
+| `10025` | NAT check. Before a Cemu player creates a room, the game asks your server for its public address on this port. **If it's closed, Cemu players can log in and see the halls, but "Create Room" fails.** |
+| `27100-27387` | the relay, **only if you tick "Relay hunt traffic through this PC"** (recommended when anyone plays on a real Wii U) |
+| dynamic | your Cemu's P2P port (game picks it per session — see the firewall step). Not needed with the relay on. |
+
+> **Quick version** (per-port forwarding, the setup proven on 2026-11-02 with the host on a
+> real Wii U and a Cemu player joining from outside): find your public IP (Step 0), forward
+> UDP 1223–1224, 10025 and 27100–27387 to your PC (Step 1, Option A), add the firewall rules
+> (Step 2), start the server on your public IP with the relay ticked (Step 3), and have
+> someone outside your network run the checks in Step 4.
 
 ---
 
@@ -40,11 +48,26 @@ stop here and use the overlay. Two quick checks:
    (`10.x`, `172.16–31.x`, `192.168.x`) or anything in `100.64.x–100.127.x` before
    reaching public space, that's CGNAT.
 2. Compare the WAN/Internet IP shown in your **router's status page** with what the world
-   sees (`curl ifconfig.me`). If they differ, you're behind CGNAT.
+   sees (`curl.exe -4 ifconfig.me`). If they differ, you're behind CGNAT.
 
-Note your public IP — it's the address friends will type in. It can change when your
-ISP renews your lease, so re-check it (`curl ifconfig.me`) before each session and tell
-your friends the current one.
+**Your public IP is what `curl.exe -4 ifconfig.me` prints** (in Command Prompt or PowerShell).
+It's the address friends will type in.
+
+> ⚠️ **Not the address `ipconfig` shows.** `ipconfig`'s "IPv4 Address" is your PC's address
+> *inside* your home (`192.168.x.x`, `10.x.x.x` or `172.16–31.x.x`). Your own devices can
+> reach it, so your own console or second PC connects fine, but nobody outside your house
+> can. "It works for me but nobody can join" almost always means friends were given this
+> address.
+>
+> The `-4` matters too: without it, a line with IPv6 can print an IPv6 address, which the
+> game can't use.
+
+Your public IP can change when your ISP renews your lease, so re-check it before each
+session and tell your friends the current one.
+
+If your router or ISP account says your IPv4 is **shared** (some ISPs share one IPv4
+address between several customers and give each a range of ports), forwards outside your
+range won't work. Ask your ISP for a full, non-shared IPv4 address first.
 
 ## Step 1 — Router: deliver inbound traffic to your PC
 
@@ -52,11 +75,22 @@ Every router UI is different; you're looking for one of these two features. Both
 usually under names like *Port Forwarding*, *NAT*, *Gaming*, *Virtual Server*, *DMZ*, or
 *IP Passthrough*.
 
-**Option A — port forwarding (the surgical one).** Forward **UDP 1223 and 1224** to your
-PC's LAN IP. Gotchas seen in the wild:
+**Option A — port forwarding (the surgical one).** Forward these to your PC's LAN IP (the
+`ipconfig` address), all **UDP**:
+
+| WAN port(s) | LAN port(s) | When |
+| --- | --- | --- |
+| `1223`–`1224` | `1223`–`1224` | always |
+| `10025` | `10025` | always (without it, Cemu players can't create rooms) |
+| `27100`–`27387` | `27100`–`27387` | if you tick the relay |
+
+Gotchas seen in the wild:
 
 - **TCP and UDP are forwarded independently.** A rule that only says TCP does nothing for
-  the game. Pick UDP (or both).
+  the game. Pick UDP (or both). Some routers' forms **default to TCP**, so check the
+  dropdown on every rule.
+- **Check the finished table.** After adding the rules, the router's list should show all
+  of them, as UDP, pointing at your PC, and enabled/active. A missing row fails silently.
 - **Device dropdowns lie.** Routers that make you pick a *device* instead of typing an IP
   often hold stale/duplicate entries (a PC with a VPN adapter or virtual switch can appear
   several times). If the forward silently doesn't work, this is a prime suspect.
@@ -68,7 +102,8 @@ PC's LAN IP. Gotchas seen in the wild:
   IP, so they no longer match) — don't count on them, and don't be confused by them.
 - Your Cemu's P2P port is dynamic, so a per-port forward can't cover it — this still works
   for most sessions (the joiner punches outward first), but if hunts fail to start while
-  the hall works, that's the gap. Option B doesn't have it.
+  the hall works, that's the gap. Option B doesn't have it, and neither does the relay
+  (hunt traffic then goes through the relay ports you forwarded).
 
 **Option B — DMZ / IP Passthrough (the sledgehammer — and what's actually proven).** Tell
 the router to send **all** inbound traffic to your PC (some gateways can even hand the PC
@@ -92,7 +127,14 @@ Two parts. The first is the obvious one; the second is the trap that produces
 ```bat
 netsh advfirewall firewall add rule name="MH3U NEX 1223" dir=in action=allow protocol=UDP localport=1223
 netsh advfirewall firewall add rule name="MH3U NEX 1224" dir=in action=allow protocol=UDP localport=1224
+netsh advfirewall firewall add rule name="MH3U NAT check" dir=in action=allow protocol=UDP localport=10025
+rem only if you use the relay:
+netsh advfirewall firewall add rule name="MH3U relay" dir=in action=allow protocol=UDP localport=27100-27387
 ```
+
+Each should print `Ok.`. If you see "The requested operation requires elevation", the
+terminal isn't running as administrator and the rule was **not** added. To check a rule
+afterwards: `netsh advfirewall firewall show rule name="MH3U NAT check"`.
 
 **2b. Hunt down hidden Block rules.** ⚠️ **In Windows Firewall, a Block rule always beats
 an Allow rule.** When any program first listens on a network, Windows pops an "Allow this
@@ -135,6 +177,14 @@ profile's stricter defaults are exactly what you want. Fix the specific rules in
 
 ## Step 3 — Start the server advertising your public IP
 
+**With the launcher** (`MH3U_Online.exe` → **Host** tab): the auto-detected choices are
+Radmin, Tailscale and your LAN address, and **none of them work here**. Type your public IP
+into **"or type any IP"**, tick **Relay hunt traffic through this PC** if you forwarded the
+relay ports, then click **Start Server** (or **Host + Play** to play on this PC). The box
+underneath should read `Friends connect to:  <your public IP>`.
+
+**From source:**
+
 ```bat
 set MH3U_ADVERTISE=<your-public-ip> & python server.py
 ```
@@ -148,6 +198,15 @@ symptom is "connected to the internet", then dropped to the village.
 You play as normal on the same PC (`127.0.0.1` in `mh3u_server.txt` — the server
 substitutes your public IP when advertising you to others). An IP always fits the
 15-character `mh3u_server.txt` limit, so friends just enter your public IP.
+
+**Playing on a real Wii U on the same network as the server:** put the server PC's LAN
+address (from `ipconfig`) in your plugin, not the public IP. Friends still use the public
+IP. Turn the relay on: that's the tested setup for a console on the host's network. One
+catch: after the first login step, the server sends every player on to the public IP,
+including your console, so your router has to pass traffic from inside your home out to
+your own public IP and back in. That's called NAT loopback or hairpin NAT, and many home
+routers support it. If your console can't get online after you switch the server to your
+public IP, while friends can, that's the cause.
 
 ## Step 4 — Test it (from OUTSIDE your network)
 
@@ -184,6 +243,19 @@ This drives one headless player through the full life cycle — UDP auth on 1223
 ticket, secure register on 1224 *via the advertised address*, hall join, room create. All
 phases passing = the server leg is proven end-to-end; the script explains what each
 failing phase means.
+
+**Tier 2b — the NAT check (port 10025).** Tier 2 doesn't touch this port, so a host can
+pass Tier 2 and still have every Cemu player fail at "Create Room". With the server
+running, from the external box (single file, standard library only — copy it anywhere):
+
+```bat
+python tests/extkit/check_natcheck.py <your-public-ip>
+```
+
+`PASS` means the server answered. `FAIL` means UDP 10025 isn't forwarded to the server PC,
+or Windows Firewall is blocking it. On the host, `netstat -ano -p udp | findstr 10025`
+should show `0.0.0.0:10025` while the server runs. If it does, the server is listening, so
+look at the router and firewall.
 
 **Tier 3 — a real joiner.** A friend (or your hotspot laptop running the bundle) enters
 your public IP and joins your room. The room join exercises the last layer Tier 2 can't:
@@ -229,17 +301,22 @@ answer in about a minute.
   this blast radius.
 - Undo is cheap and worth knowing: turn off the DMZ/passthrough or delete the forwards,
   and delete the 2a rules (`netsh advfirewall firewall delete rule name="MH3U NEX 1223"`,
-  same for 1224).
+  same for `MH3U NEX 1224`, `MH3U NAT check` and `MH3U relay`).
 
-## What's proven vs. not (as of 2026-07)
+## What's proven vs. not (as of 2026-11)
 
 **Proven live:** the full public path — external UDP auth/matchmaking, and a 2-player
 session where a **cellular-CGNAT** joiner P2P'd into a room hosted on a
 passthrough-exposed host (`NAT traversal result=True`).
 
+**Proven 2026-11-02:** per-port forwarding (Option A) with the relay on. The host forwarded
+UDP 1223–1224, 10025 and 27100–27387, played on a real Wii U on the same network as the
+server (their router handled NAT loopback), and a Cemu player joined from outside, both
+into the gathering hall and into a room together. A hunt over this setup is not yet
+confirmed.
+
 **Not yet proven:** a *joiner-hosted* room between two NAT'd players over the bare
-internet (irrelevant for the normal "you host, friends join" topology); per-port
-forwarding specifically (Option A — proven only in the DMZ/passthrough form, Option B);
+internet (irrelevant for the normal "you host, friends join" topology);
 UDP tunnel services (playit.gg-style) are **unsupported** — the server can't yet advertise
 a port different from the one it binds, which tunnels require.
 

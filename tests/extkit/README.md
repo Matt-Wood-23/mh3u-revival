@@ -67,6 +67,19 @@ python tests/extkit/check_server_leg.py <HOST_PUBLIC_IP> 1223
 real auth -> secure -> join handshake completed over the public path = the **server
 leg** works end-to-end.
 
+## Tier 2b — the NAT check on UDP 10025
+
+Tier 2 never touches port 10025, but Cemu players need it to **create rooms**: the game
+asks the server for its public address there first and refuses to host if nothing
+answers. With the live server running on A, from B (single-file stdlib, no repo needed):
+
+```sh
+python check_natcheck.py <HOST_PUBLIC_IP>
+```
+
+PASS = the server answered and printed the address it sees B at. FAIL = 10025 isn't
+forwarded/allowed (or the server is down).
+
 ## Not covered here — the P2P leg
 
 Tiers 1-2 validate the **server** is reachable; the game-to-game P2P link is a separate

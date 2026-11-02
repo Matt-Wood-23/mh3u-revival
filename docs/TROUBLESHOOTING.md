@@ -45,6 +45,35 @@ their `26.x` IP).
 
 ---
 
+## Public-IP host: players log in and see the halls, but "Create Room" fails
+
+Only on a server hosted on a **public IP** (no Tailscale/Radmin). Before creating a room,
+a Cemu player's game asks the server for its public address on **UDP port 10025**, and it
+refuses to create the room if nothing answers. The host has forwarded 1223/1224 but not
+10025.
+
+**Fix (host):** forward **UDP 10025** to the server PC on the router, and allow it in an
+admin Command Prompt:
+
+```bat
+netsh advfirewall firewall add rule name="MH3U NAT check" dir=in action=allow protocol=UDP localport=10025
+```
+
+No server restart needed. To confirm, someone outside the host's network runs
+`python tests/extkit/check_natcheck.py <host-public-ip>`. Full port list:
+[PUBLIC_HOSTING.md](PUBLIC_HOSTING.md).
+
+---
+
+## Public-IP host: "I can connect, but nobody else can"
+
+The host handed out their **LAN** address (`192.168.x.x`, `10.x.x.x`, the one `ipconfig`
+shows). Only devices in the host's home can reach it. Friends need the public IP
+(`curl.exe -4 ifconfig.me`), and the host needs the port forwarding in
+[PUBLIC_HOSTING.md](PUBLIC_HOSTING.md).
+
+---
+
 ## Two specific players can't share a Room — every other combination works
 
 The telltale version of the room disconnect: A+B+C works, A+B+D works, but any room

@@ -14,7 +14,8 @@ same all-in-one **MH3U Online Bundle** you play with — `server.exe` already sh
    [section 3](#3-make-the-server-reachable) — that part is the same either way).
 2. Open **`MH3U_Online.exe`** → **Host** tab. Pick the IP your friends will use (it auto-detects
    your Radmin `26.x` / Tailscale `100.x` / LAN address, or type any IP), then click **Start
-   Server**. It shows the **address your friends type in** and streams the server log — leave it
+   Server**. Hosting over the internet without a VPN? Type your **public** IP there, not the
+   LAN one, and follow [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md) for the ports to open. It shows the **address your friends type in** and streams the server log — leave it
    running.
 3. To play on the same PC, click **Host + Play (127.0.0.1)** — it starts the server *and* joins it
    yourself at loopback. Online is already enabled in the bundle.
@@ -103,7 +104,7 @@ MH3U_ADVERTISE=<your-reachable-ip> python server.py
 | Players are… | Do this | `<reachable-ip>` |
 |---|---|---|
 | **over an overlay (recommended)** | you + friends join a **Tailscale** *or* **Radmin** network | overlay IP (Tailscale `100.x` / Radmin `26.x`) |
-| anywhere, no VPN | open the public path — see [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md) | your public IP (`curl ifconfig.me`) |
+| anywhere, no VPN | open the public path — see [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md) | your public IP (`curl.exe -4 ifconfig.me`, **not** the `192.168.x` address `ipconfig` shows) |
 | on your LAN | nothing | your LAN IP (e.g. `192.168.1.50`) |
 
 > **Public-internet hosting is proven** (a real session, including a joiner behind cellular
@@ -230,7 +231,8 @@ What it costs you:
   link. This is real bandwidth. Fine for a group of friends; think before pointing a large
   hall at it.
 - **You must forward the relay port range** (`27100-27387` UDP by default) as well as
-  `1223`/`1224`.
+  `1223`/`1224` and `10025` (the full list is in
+  [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md)).
 
 Two things to know before you turn it on:
 

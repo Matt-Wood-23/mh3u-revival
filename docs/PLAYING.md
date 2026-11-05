@@ -147,9 +147,12 @@ against the wrong `act/80000001` folder.
 
 ## Linux / Steam Deck (experimental)
 
-A community-built **Linux bundle** — `MH3U_Online_Linux.zip` on the
-[Releases](https://github.com/Matt-Wood-23/mh3u-revival/releases) page, contributed by
-**jM5557**. Same patched Cemu fork as an **AppImage**, the same pre-configured `portable/`
+A community-built **Linux bundle** — `MH3U_Online_Linux.zip`, contributed by **jM5557**.
+The newest one is on the
+[v0.2.0-beta release](https://github.com/Matt-Wood-23/mh3u-revival/releases/tag/v0.2.0-beta).
+Its built-in server predates v0.2.1-beta's room-join fix, so if you host on Linux and
+players far away can't join, run the server from source
+([HOSTING.md](HOSTING.md#1-get-the-server-and-run-it)). Same patched Cemu fork as an **AppImage**, the same pre-configured `portable/`
 folder, plus a launcher of its own. x86-64 Linux and **SteamOS / Steam Deck**.
 **New in v0.2.0: it can host, not just join** — the server ships in the bundle, so a group
 needs no Windows machine at all.

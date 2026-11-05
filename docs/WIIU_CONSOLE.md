@@ -143,10 +143,10 @@ causes:
 
 - **Three or more players:** the "who creates the room" problem above.
 - **Any number of players, when someone's connection to the server drops packets** (long
-  distance, busy or patchy internet): older servers waited 30 seconds before resending a
-  lost message, but the game gives up on a join after 10. The first `MH3U NEX server` line
-  of the host's server log should end with `prudp_resend=1s`. If it doesn't, the host needs
-  a newer server.
+  distance, busy or patchy internet): servers before v0.2.1-beta waited 30 seconds before
+  resending a lost message, but the game gives up on a join after 10. The first
+  `MH3U NEX server` line of the host's server log should end with `prudp_resend=1s`. If it
+  doesn't, the host should update to v0.2.1-beta or later.
 
 **I host, my Wii U connects, but nobody else can.**
 You gave friends your home (LAN) address, such as `192.168.1.50`. Give them your public IP

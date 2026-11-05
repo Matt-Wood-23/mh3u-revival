@@ -43,6 +43,13 @@ firewall, or the two PCs genuinely can't reach each other (on Tailscale, run
 `tailscale ping <the other player's 100.x IP>` in both directions first; on Radmin, ping
 their `26.x` IP).
 
+**Players far apart or on a patchy connection, and the server is older than v0.2.1-beta?**
+Those servers waited 30 seconds before resending a message that got lost on the way to a
+player, while the game gives up on a room join after 10. A connection that drops the odd
+packet could then see the hall fine but fail every join (`result=False`), sometimes only on
+some days. **Fix: the host updates the server.** On a fixed server, the first
+`MH3U NEX server` line of the log ends with `prudp_resend=1s`.
+
 ---
 
 ## Public-IP host: players log in and see the halls, but "Create Room" fails

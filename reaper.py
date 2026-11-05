@@ -1,12 +1,14 @@
 """Liveness reaper — evicts abruptly-disconnected players (Cemu closed / crashed) from the
-world/lobby/room population in ~REAP_TIMEOUT seconds instead of the ~50 minutes that PRUDP's
-resend_limit=100 would otherwise take to notice.
+world/lobby/room population in ~REAP_TIMEOUT seconds instead of the minutes PRUDP would
+otherwise take to notice.
 
 WHY ghosts happen: PRUDP is UDP, so a closed client sends no FIN. The server only declares a
-connection dead after its keep-alive ping has gone unacked resend_limit (100) x resend_timeout
-(30s) ~= 50 min, at which point cleanup()->logout() finally runs REGISTRY.leave + COMMUNITY.
-leave_all. Until then the dead pid sits in the participant sets -> inflated "X/98" population
-(matches the 2026-06-21 observation: both Cemus closed yet world 2/98, lobby 2/99).
+connection dead after its keep-alive ping (sent every ping_timeout = 120s) has gone unacked
+resend_limit (100) x resend_timeout (1s, server.build_settings) -> up to ~4 min,
+at which point cleanup()->logout() finally runs REGISTRY.leave + COMMUNITY.leave_all. Until then
+the dead pid sits in the participant sets -> inflated "X/98" population (matches the 2026-06-21
+observation: both Cemus closed yet world 2/98, lobby 2/99). Before 2026-11-05 resend_timeout
+was 30s, so that window was ~50 min.
 
 HOW this fixes it: stamp a last-inbound-packet time on every PRUDP packet (pings included), then
 a background task force-runs cleanup() on any SECURE-connection client silent past REAP_TIMEOUT.
@@ -54,8 +56,8 @@ def install_rx_stamp():
 
 async def reaper_task():
     if REAP_TIMEOUT <= 0:
-        logger.info("liveness reaper DISABLED (MH3U_REAP_TIMEOUT=%g) — ghosts rely on the "
-                    "~50min PRUDP resend timeout (use this mode for breakpoint debugging)", REAP_TIMEOUT)
+        logger.info("liveness reaper DISABLED (MH3U_REAP_TIMEOUT=%g) — ghosts rely on PRUDP's "
+                    "own dead-peer timeout (minutes)", REAP_TIMEOUT)
         return
     logger.info("liveness reaper ON: silence > %.0fs -> cleanup; sweep every %.0fs",
                 REAP_TIMEOUT, REAP_INTERVAL)

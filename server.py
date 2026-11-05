@@ -110,14 +110,16 @@ if os.environ.get("MH3U_PKT_LOG") != "1":
 def build_settings():
     s = settings.load(config.SETTINGS_BASE)
     s.configure(config.ACCESS_KEY, config.NEX_VERSION)
-    # Live Cemu debugging: pausing the emulator at a breakpoint freezes the GAME's
-    # clock but NOT the server's, so the server's keep-alive pings go unacked and it
-    # drops the session after ~3s (confirmed 2026-06-16: breakpoint halt after m21 ->
-    # server ping timeout -> connection closed -> game stuck on loading screen).
-    # Crank keep-alive/resend tolerances way up so a long breakpoint halt is survivable.
-    # The client drives its own keep-alive, so a long server ping_timeout is harmless.
+    # The client drives its own keep-alive, so a long server ping interval is harmless.
     s["prudp.ping_timeout"] = 120.0
-    s["prudp.resend_timeout"] = 30.0
+    # Resend an unacked reliable packet after 1s (the library default). Every lost packet
+    # stalls that player for this long, and whatever the server sent after it waits behind
+    # it. This was 30s (a breakpoint-debugging leftover) until 2026-11-05: on lossy internet
+    # links it broke room joins, because the joiner gives the host only 10s to answer and
+    # the host's answer sat behind a 30s resend (Wii U error 106-0612).
+    s["prudp.resend_timeout"] = 1.0
+    # Keep resending for ~100s before declaring the player gone. The library default (2)
+    # would drop players on the same lossy links; the reaper evicts truly dead ones sooner.
     s["prudp.resend_limit"] = 100
     return s
 
@@ -227,8 +229,8 @@ def kerberos_client_ticket(session_key, target_pid, internal):
 # coroutine raises, the task just vanishes (asyncio emits only an easily-missed
 # "exception was never retrieved" warning). For the reaper that's a real hazard
 # — a crash in its sweep loop would SILENTLY disable ghost cleanup for the rest
-# of the session, degrading back to the ~50-minute PRUDP resend timeout the
-# reaper exists to avoid. So we retain the task handles (this also stops the GC
+# of the session, degrading back to PRUDP's own much slower dead-peer detection
+# (minutes), which the reaper exists to avoid. So we retain the task handles (this also stops the GC
 # from collecting a task mid-flight) and watch them: log loudly on unexpected
 # death, and respawn critical tasks a bounded number of times so a persistent
 # bug can't spin-loop forever.
@@ -324,8 +326,12 @@ async def status_task():
 async def main():
     s = build_settings()
     reaper.install_rx_stamp()   # stamp last-inbound time on every PRUDP packet (before serving)
-    logger.info("MH3U NEX server  |  game_server_id=0x%08X  access_key=%s  nex_version=%d",
-                config.GAME_SERVER_ID, config.ACCESS_KEY, config.NEX_VERSION)
+    # prudp_resend= also tells an old build apart: builds before 2026-11-05 don't print it
+    # and resend after 30s, which breaks joins on lossy links (Wii U 106-0612).
+    logger.info("MH3U NEX server  |  game_server_id=0x%08X  access_key=%s  nex_version=%d"
+                "  prudp_resend=%gs",
+                config.GAME_SERVER_ID, config.ACCESS_KEY, config.NEX_VERSION,
+                s["prudp.resend_timeout"])
     if relay.enabled():
         # probes= is printed on purpose: it is the one relay setting whose wrong value
         # silently breaks 3-player rooms, and a stale binary that predates the setting

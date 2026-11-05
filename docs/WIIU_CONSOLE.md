@@ -138,8 +138,15 @@ isn't running, or their port forwarding isn't set up. Check the `In use:` row ma
 the host gave you.
 
 **`106-0612`.**
-You reached the server but the room join failed. Usually the "who creates the room" problem
-above.
+You reached the server, but connecting to the other player in the room failed. Two known
+causes:
+
+- **Three or more players:** the "who creates the room" problem above.
+- **Any number of players, when someone's connection to the server drops packets** (long
+  distance, busy or patchy internet): older servers waited 30 seconds before resending a
+  lost message, but the game gives up on a join after 10. The first `MH3U NEX server` line
+  of the host's server log should end with `prudp_resend=1s`. If it doesn't, the host needs
+  a newer server.
 
 **I host, my Wii U connects, but nobody else can.**
 You gave friends your home (LAN) address, such as `192.168.1.50`. Give them your public IP

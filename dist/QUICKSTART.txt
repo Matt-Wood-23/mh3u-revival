@@ -10,9 +10,21 @@ Everything runs from ONE app: MH3U_Online.exe. Double-click it and pick JOIN
 all-in-one - the server is built in, so there is no separate "Host Add-on" to
 download anymore.
 
-You connect over an overlay VPN - Tailscale or Radmin - a free app that tunnels
-straight to the host's PC over the internet and sidesteps all router/NAT setup.
-The host does NOT need to port-forward for this.
+EASIEST: THE OFFICIAL SERVER (no VPN, no host needed)
+-----------------------------------------------------
+1. Unzip this whole folder anywhere (e.g. C:\MH3U_Online).
+2. Put your MH3U dump in place (see step 3 under STEPS below).
+3. Open MH3U_Online.exe -> JOIN A GAME -> pick "Official server" -> Save + Play.
+   The launcher shows how many hunters are online. "Test connection" checks that
+   your PC can reach the server.
+4. In game: Network Mode -> pick a hall (Americas, Europe or Asia/Oceania) ->
+   create or join a room. US, EU and Japanese versions all play together.
+
+The steps below are for playing on a FRIEND'S server instead.
+
+For a friend's server you connect over an overlay VPN - Tailscale or Radmin - a free
+app that tunnels straight to the host's PC over the internet and sidesteps all
+router/NAT setup. The host does NOT need to port-forward for this.
 
 
 HEADS UP: WINDOWS WILL WARN ABOUT THE .EXE FILES

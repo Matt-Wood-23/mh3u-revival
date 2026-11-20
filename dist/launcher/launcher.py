@@ -542,14 +542,17 @@ def load_event_quests(root, fetch=True, timeout=8, log=print):
 
 
 def event_save_dirs(root):
-    """Save folders (US/EU) whose event quest packs exist; the game creates them."""
+    """Save folders (US/EU) whose event quest packs exist; the game creates them. Only
+    Cemu's own account folders (8 hex digits, e.g. 80000001): a copy someone made next
+    to it ("80000001_BACKUP") is left alone."""
     base = Path(root) / "portable" / "mlc01" / "usr" / "save" / "00050000"
     out = []
     for title in EVENT_TITLES:
         users = base / title / "user"
         if users.is_dir():
             out += [d for d in sorted(users.iterdir())
-                    if d.is_dir() and all((d / p).is_file() for p in EVENT_PACKS)]
+                    if d.is_dir() and re.fullmatch(r"[0-9a-fA-F]{8}", d.name)
+                    and all((d / p).is_file() for p in EVENT_PACKS)]
     return out
 
 
@@ -664,8 +667,8 @@ def install_event_quests(root, log=print, fetch=True):
         for n in notes:
             log(f"[Events] Note: {n}.")
         if added or updated or removed:
-            log(f"[Events] Event quests: {added} added, {updated} updated, {removed} removed "
-                f"({len(owned)} installed).")
+            log(f"[Events] Event quests in save {save.name}: {added} added, {updated} updated, "
+                f"{removed} removed ({len(owned)} installed).")
     try:
         state_path.write_text(json.dumps(state, indent=1), encoding="utf-8")
     except OSError:
@@ -1273,7 +1276,10 @@ def _selftest():
         (save / "quest2").write_bytes(pack())
         (save / "quest3").write_bytes(pack({0: (qrec(20360, b"player-made 20360"), 20360)}))
         (save / "quest4").write_bytes(pack())
-        check(event_save_dirs(tmp) == [save], "finds the US save with packs")
+        copy = save.with_name("80000001_BACKUP")              # a player's own backup copy
+        shutil.copytree(save, copy)
+        check(event_save_dirs(tmp) == [save], "finds the US save, skips a backup copy of it")
+        shutil.rmtree(copy)
         owned = {}
         a, u, r, notes = sync_event_packs(save, {20350: qrec(20350), 20360: qrec(20360)}, owned)
         q3 = (save / "quest3").read_bytes()

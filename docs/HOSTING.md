@@ -204,7 +204,12 @@ same hall and enter your room.
 | `MH3U_RELAY_ADVERTISE` | = `MH3U_ADVERTISE` | address players are told to send relayed traffic to. Only set this if the relay is reachable on a different address than the server. |
 | `MH3U_RELAY_PORT_START` / `_END` | `27100` / `27387` | UDP port pool for relayed links, one port per player pair. 288 ports covers the default room cap. **These must be forwarded** if you relay. |
 | `MH3U_REAP_TIMEOUT` | `45` | seconds of silence before a ghost connection is reaped (`0` disables — use while debugging with a paused Cemu) |
-| `MH3U_STATUS_PORT` | `0` (off) | TCP port for a read-only status page: `http://<server>:<port>/status` returns player, room and hall counts as JSON (counts only, no names or IPs). The launcher reads it to show "12 hunters online". Open this TCP port in your firewall too. |
+| `MH3U_STATUS_PORT` | `0` (off) | TCP port for a read-only status page: `http://<server>:<port>/status` returns player, room and hall counts as JSON (counts only, no names or IPs). The launcher reads it to show "12 hunters online". With the relay on, it also shows the relay's traffic today and this month (UTC), for hosts that pay for outbound data. Open this TCP port in your firewall too. |
+| `MH3U_ADMIN_PORT` | `0` (off) | TCP port for host commands, on 127.0.0.1 only (reach it over SSH): post a chat message from "Server" to every player, or restart once no hunts are running. See [Announcements and planned restarts](#announcements-and-planned-restarts). |
+| `MH3U_ANNOUNCE_NAME` | `Server` | the hunter name announcements show (up to 10 characters) |
+| `MH3U_ANNOUNCE_MAX_CHARS` | `45` | characters per chat message (at most 80: the game shows about 80 and shrinks the text past 45); longer announcements are split into up to 4 messages |
+| `MH3U_STATE_DIR` | `state` (systemd: `StateDirectory=`) | where the server keeps the Discord message id and its saved counters (`stats.json`: today's peak and relay traffic). Only written when the status page or Discord is on. |
+| `MH3U_EGRESS_WARN_GB` | `5000` | post a Discord alert once a month when the relay has sent this many GB (0 = never). Oracle's free outbound allowance is 10 TB a month. |
 | `MH3U_DISCORD_STATUS_WEBHOOK` | (none) | a Discord webhook URL. The server keeps one message in that channel up to date with the player and room counts. |
 | `MH3U_DISCORD_ALERT_WEBHOOK` | (none) | a Discord webhook URL for alerts: a post when the server starts, stops, or comes back after a crash or reboot. Can be the same URL as the status one. |
 | `MH3U_SERVER_NAME` | `MH3U Revival server` | the name the Discord messages use |
@@ -214,6 +219,34 @@ same hall and enter your room.
 > same PC, another PC, another continent. The old RAM-poke (`host_roster_free.py`,
 > `MH3U_HOST_FREE=1`) remains available as an emergency fallback for co-located hosts.
 > See [ARCHITECTURE.md §4](ARCHITECTURE.md#4-the-rejoin-problem-and-its-fix-the-hard-part).
+
+## Announcements and planned restarts
+
+With `MH3U_ADMIN_PORT` set (e.g. `8081`), the host can talk to the server from the server
+machine itself. Nothing else can reach it: it only listens on 127.0.0.1.
+
+```sh
+# a chat message from "Server" to everyone in a hall or a room
+curl -s -X POST --data-binary "Event quest night at 8pm ET!" localhost:8081/announce
+#   ?scope=halls or ?scope=rooms to reach only one of the two
+
+# restart once nobody is in a room (no hunt is cut short); gives up waiting after 60 min
+curl -s -X POST "localhost:8081/restart?wait=idle&max_minutes=60"
+curl -s localhost:8081/restart            # is one pending?
+curl -s -X POST localhost:8081/restart/cancel
+```
+
+`wait=empty` waits until nobody is online at all, `wait=now` restarts after a 15-second
+warning. Players see the plan in chat when it's scheduled, every 15 minutes while it
+waits, and 5 and 1 minutes before the deadline. The server then stops cleanly with exit
+code 75; under systemd (`Restart=on-failure`, as `deploy/oracle_vm_setup.sh` sets up)
+that brings it straight back with whatever code is on disk, so the update routine is:
+`git pull`, then `/restart`. Discord (if on) says "restarting for an update" rather than
+"stopped".
+
+The restart notices are in English, Japanese, French, German, Italian and Spanish: players
+on the Japanese game get Japanese, everyone else gets the language they chat in (English
+until they've typed something). Your own `/announce` text goes to everyone as written.
 
 ## Optional: the UDP relay
 

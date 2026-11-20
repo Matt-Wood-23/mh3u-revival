@@ -83,8 +83,9 @@ def render_status(snap, name=None, now=None):
     return "\n".join(lines)
 
 
-def render_offline(name=None, now=None):
-    return (f"🔴 **{name or NAME}** is offline (stopped)\n"
+def render_offline(name=None, now=None, restarting=False):
+    what = "is restarting for an update" if restarting else "is offline (stopped)"
+    return (f"{'🔄' if restarting else '🔴'} **{name or NAME}** {what}\n"
             f"-# Since <t:{int(now or time.time())}:f>")
 
 
@@ -207,9 +208,9 @@ async def status_loop():
         await asyncio.sleep(INTERVAL)
 
 
-async def stopped():
-    """Call on a clean shutdown. Never raises and gives up after a few seconds, so it
-    can't hold up a stop."""
+async def stopped(restarting=False):
+    """Call on a clean shutdown (restarting=True for a planned restart). Never raises and
+    gives up after a few seconds, so it can't hold up a stop."""
     if not enabled():
         return
     _state["running"] = False
@@ -217,8 +218,9 @@ async def stopped():
 
     def work():
         if STATUS_URL and _state.get("status_message_id"):
-            set_status(_state, render_offline())
-        post_alert(f"🛑 **{NAME}** stopped.")
+            set_status(_state, render_offline(restarting=restarting))
+        post_alert(f"🔄 **{NAME}** is restarting for an update." if restarting
+                   else f"🛑 **{NAME}** stopped.")
     try:
         await asyncio.wait_for(asyncio.to_thread(work), 8)
     except Exception:

@@ -7,12 +7,14 @@ live Cemu produces an exact trace of the login -> lobby call sequence — which 
 the to-do list for which handlers to implement next (Phase 2).
 """
 import logging
+import struct
 import time
 
 from nintendo.nex import secure, matchmaking, rmc, common, datastore, nattraversal, streams, notification, messaging
 
 import asyncio
 
+import announce
 import config
 import matchmaking_handlers
 import host_roster_free
@@ -814,19 +816,50 @@ def _shout_text(raw):
         return ""
 
 
+def _twin_lobby(gid, to_jp):
+    """The other build's copy of hall lobby `gid` (Western 0x20N <-> JP 0x21N), or None if
+    `gid` isn't a hall lobby (a room) or is already the recipient's copy."""
+    c = matchmaking_handlers.COMMUNITY
+    lobbies = set(c.lobbies.values())
+    if gid not in lobbies or (gid in c.jp_gids) == to_jp:
+        return None
+    off = matchmaking_handlers.JP_GID_OFFSET
+    twin = gid + off if to_jp else gid - off
+    return twin if twin in lobbies else None
+
+
 def _shout_for(raw, sender_jp, recipient_jp):
     """A shout as the recipient's game build accepts it. The payload carries a tab-separated
     context string: hall, lobby, room, account, hunter name, LANGUAGE, ..., text. The
     Western builds drop a shout tagged "jpn" (JP -> US chat never showed while US -> JP did,
     2026-11-20; "spa"/"eng" show everywhere), so a JP player's shout to a US/EU player is
-    tagged "eng". Same length, so no length field in the message changes."""
-    if not (sender_jp and recipient_jp is False):
-        return raw
-    parts = bytes(raw).split(b"	")
-    if len(parts) < 10 or parts[5] != b"jpn":
-        return raw
-    parts[5] = b"eng"
-    return b"	".join(parts)
+    tagged "eng".
+
+    A game also drops chat whose hall name (first field) isn't its OWN name for that hall,
+    unless it's empty (tested 2026-11-20: US "Asia/Oceania" vs JP "アジア・オセアニア" were
+    dropped both ways; "" shows on US and JP). The name depends on the build and the
+    game's language (EU: "Amériques", "Américas", ...), so a relayed shout carries "".
+
+    Hall chat also crosses between a hall's Western and JP copies, and the message carries
+    the sender's lobby gid, so the gid becomes the recipient's own copy of the lobby."""
+    p = announce.parse(raw)
+    if p is None:
+        return raw                                   # not the layout we know: as is
+    pre, fields, post = p
+    fields = list(fields)
+    changed = False
+    if fields[0]:
+        fields[0] = b""
+        changed = True
+    if sender_jp is not None and recipient_jp is not None and bool(sender_jp) != bool(recipient_jp):
+        if sender_jp and fields[5] == b"jpn":
+            fields[5] = b"eng"
+            changed = True
+        twin = _twin_lobby(struct.unpack_from("<I", pre, 4)[0], bool(recipient_jp))
+        if twin is not None:
+            pre = pre[:4] + struct.pack("<I", twin) + pre[8:]
+            changed = True
+    return announce.build(pre, fields, post) if changed else raw
 
 
 def _shout_targets(sender):
@@ -912,6 +945,7 @@ class MessageDeliveryServer(_Trace, messaging.MessageDeliveryServer):
         logger.info("SHOUT pid=%s raw=%dB text=%r", sender, len(raw), _shout_text(raw))
         if os.environ.get("MH3U_DEBUG_ROOMDATA") == "1":
             logger.info("  shout raw (pid=%s): %s", sender, bytes(raw).hex())
+        announce.remember(raw, sender)         # template + sender's language, for announcements
 
         # Rate-limit the RELAY only (a modified client can spam DeliverMessage; each fans out
         # 1->N). Over the bucket we drop the relay but STILL reply below — gating the reply

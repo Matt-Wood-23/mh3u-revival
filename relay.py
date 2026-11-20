@@ -16,6 +16,9 @@ from nintendo.nex import common
 
 import config
 import relay_policy
+import server_stats
+
+_COUNT = server_stats.RELAY     # bytes in/out, for the status page and the cloud bill
 
 logger = logging.getLogger("mh3u.relay")
 
@@ -92,6 +95,7 @@ class PairRelay(asyncio.DatagramProtocol):
 
     def datagram_received(self, data, addr):
         self.last_rx = time.monotonic()
+        _COUNT.rx += len(data)
         if addr not in self.peers:
             src_ip = addr[0]
             unexpected = bool(self.expected_ips) and src_ip not in self.expected_ips
@@ -116,6 +120,7 @@ class PairRelay(asyncio.DatagramProtocol):
                             self.key, self.port, len(self._pending), addr)
                 for buf in self._pending:
                     self.transport.sendto(buf, addr)
+                    _COUNT.tx += len(buf)
                 self._pending.clear()
         if len(self.peers) < 2:
             if len(self._pending) < PENDING_MAX:
@@ -123,6 +128,7 @@ class PairRelay(asyncio.DatagramProtocol):
             return
         dst = self.peers[1] if addr == self.peers[0] else self.peers[0]
         self.transport.sendto(data, dst)
+        _COUNT.tx += len(data)
 
     def error_received(self, exc):
         logger.info("relay %s:%s UDP error: %s", self.key, self.port, exc)

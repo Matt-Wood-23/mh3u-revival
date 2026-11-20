@@ -1,4 +1,5 @@
-"""Read-only HTTP status page: GET /status returns live player and room counts as JSON.
+"""Read-only HTTP status page: GET /status returns live player and room counts as JSON
+(plus the relay's traffic totals when the relay is on).
 
 Off unless MH3U_STATUS_PORT is set (a TCP port). Meant for a public server, so the
 launcher and Discord can show "12 hunters online". It exposes counts only, never PIDs,
@@ -18,8 +19,11 @@ import logging
 import time
 from datetime import datetime, timezone
 
+import config
 import limits
 import matchmaking_handlers as mh
+import relay
+import server_stats
 
 logger = logging.getLogger("mh3u.status")
 
@@ -31,7 +35,6 @@ CACHE_SECONDS = 2.0
 
 _START_WALL = datetime.now(timezone.utc)
 _START_MONO = time.monotonic()
-_peak = {"date": "", "players": 0}
 _cache = {"at": -1e9, "body": b""}
 _open = 0
 _server = None   # keep a reference to the listener for the life of the process
@@ -65,21 +68,23 @@ def snapshot():
             h = halls.setdefault(name, {"name": name, "players": 0, "max": mh.HALL_MAX})
             h["players"] += len(c.participants)
     halls = list(halls.values())
-    today = now.strftime("%Y-%m-%d")
-    if _peak["date"] != today:
-        _peak["date"], _peak["players"] = today, 0
-    _peak["players"] = max(_peak["players"], players)
-    return {
+    snap = {
         "online": True,
         "players": players,
         "rooms": len(rooms),
         "players_in_rooms": sum(len(s.participants) for s in rooms),
         "halls": halls,
-        "peak_today": dict(_peak),
+        "peak_today": server_stats.note_players(players, now),
         "started_at": _iso(_START_WALL),
         "uptime_s": int(time.monotonic() - _START_MONO),
         "updated_at": _iso(now),
     }
+    if relay.enabled():
+        # Traffic totals (UTC day / month) for the host's bandwidth bill. Counts only.
+        snap["relay"] = {"mode": config.RELAY_MODE,
+                         "active_links": len(relay.MANAGER._relays),
+                         **server_stats.relay_totals(now)}
+    return snap
 
 
 def _status_body():

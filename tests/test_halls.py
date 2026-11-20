@@ -117,16 +117,54 @@ def test_lobby_roster_lists_both_builds(monkeypatch):
 
 
 def test_jp_shouts_reach_western_players_tagged_eng():
+    import announce
     import protocols
     # A real JP room shout (captured 2026-11-20), the bytes up to and after the context string.
     jp = bytes.fromhex(
         "0c00557365724d657373616765009600000092000000000000000110000002000000000000000000"
-        "000000000000000000000000000000010000006900") + (
+        "0000000000000000000000000000010000006900") + (      # 36-byte header
         "Asia/Oceania\tLobby\t一狩りいこうぜ071\tCemuMH3U318b\tてst\tjpn\t\t\tM\t"
         "よろしくお願いします！").encode() + b"\x00\x01\x00\x00"
-    us_view = protocols._shout_for(jp, True, False)
-    assert len(us_view) == len(jp) and b"\teng\t" in us_view and b"\tjpn\t" not in us_view
-    assert us_view.replace(b"\teng\t", b"\tjpn\t") == jp           # only the tag changed
-    assert protocols._shout_for(jp, True, True) is jp               # JP -> JP: as is
-    assert protocols._shout_for(jp, True, None) is jp               # recipient build unknown
-    assert protocols._shout_for(jp, False, False) is jp             # not from a JP player
+    orig = announce.parse(jp)[1]
+    us_view = announce.parse(protocols._shout_for(jp, True, False))[1]
+    assert us_view[5] == b"eng" and us_view[0] == b""               # tag + hall name
+    assert us_view[1:5] == orig[1:5] and us_view[6:] == orig[6:]    # nothing else
+    for s_jp, r_jp in ((True, True), (True, None), (False, False)):   # no "jpn" -> "eng"
+        f = announce.parse(protocols._shout_for(jp, s_jp, r_jp))[1]
+        assert f[5] == b"jpn" and f[0] == b"" and f[1:5] == orig[1:5]
+
+
+def test_relayed_shout_keeps_an_empty_hall_name_and_unknown_layouts_as_is():
+    import announce
+    import protocols
+    raw = announce.build(bytes(36), [b"", b"Lobby", b"", b"A", b"n", b"eng", b"", b"", b"M",
+                                     b"x"], b"\x01\x00\x00")
+    assert protocols._shout_for(raw, False, False) is raw
+    assert protocols._shout_for(b"junk", True, False) == b"junk"
+
+
+def test_hall_chat_between_builds_gets_the_recipients_lobby_gid(monkeypatch):
+    # US <-> JP hall chat didn't show (2026-11-20): each build sits in its own copy of the
+    # hall's lobby (0x20N / 0x21N) and drops chat carrying the other copy's gid.
+    import announce
+    import protocols
+    r = _registry(monkeypatch, ["Americas", "Europe", "Asia/Oceania"])
+    monkeypatch.setattr(mh, "COMMUNITY", r)
+
+    def shout(gid, lang, hall=b"Asia/Oceania"):
+        pre, fields, post = announce.parse(announce.message_for(gid, "", "Hi"))
+        fields = list(fields)
+        fields[0], fields[5] = hall, lang
+        return announce.build(pre, fields, post)
+
+    us = shout(0x203, b"eng")
+    to_jp = protocols._shout_for(us, False, True)
+    assert announce.gid_of(to_jp) == 0x213
+    assert announce.parse(to_jp)[1][1:] == announce.parse(us)[1][1:]   # text untouched
+    assert announce.parse(to_jp)[1][0] == b""                          # hall name blanked
+    jp = shout(0x213, b"jpn", "アジア・オセアニア".encode())
+    to_us = protocols._shout_for(jp, True, False)
+    assert announce.gid_of(to_us) == 0x203 and announce.parse(to_us)[1][5] == b"eng"
+    room = shout(0x1001, b"eng")                                    # rooms share one gid
+    assert announce.gid_of(protocols._shout_for(room, False, True)) == 0x1001
+    assert announce.gid_of(protocols._shout_for(us, False, False)) == 0x203  # same build

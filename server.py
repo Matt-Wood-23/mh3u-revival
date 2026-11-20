@@ -42,6 +42,9 @@ import matchmaking_handlers
 import relay
 import status_http
 import discord_status
+import server_stats
+import admin_http
+import maintenance
 
 def _log_dir():
     # Frozen (PyInstaller onefile): sys.executable is the real .exe path (the bundle
@@ -322,8 +325,15 @@ async def status_task():
             halls = len(matchmaking_handlers.COMMUNITY.communities)
         except Exception:
             continue
-        logger.info("STATUS players=%d rooms=%d halls=%d uptime=%s",
-                    players, rooms, halls, _fmt_uptime(time.monotonic() - _START_TIME))
+        extra = ""
+        if relay.enabled():
+            extra = " relay_out_today=" + server_stats.human_bytes(
+                server_stats.relay_totals()["bytes_out_today"]).replace(" ", "")
+        logger.info("STATUS players=%d rooms=%d halls=%d uptime=%s%s",
+                    players, rooms, halls, _fmt_uptime(time.monotonic() - _START_TIME), extra)
+
+
+_EXIT = {"code": 0}          # 75 after a planned restart (maintenance.py)
 
 
 async def main():
@@ -388,6 +398,17 @@ async def main():
                     config.HOST, config.AUTH_PORT, config.HOST, config.SECURE_PORT)
         await natcheck.start(config.HOST)
         await status_http.start(config.HOST)
+        # Saved counters (peak, relay traffic) only on a public server: status or Discord.
+        server_stats.start(persist=bool(status_http.PORT) or discord_status.enabled())
+        _supervise(lambda: server_stats.save_loop(discord_status.post_alert), "stats",
+                   respawn=True)
+        main_task = asyncio.current_task()
+        if await admin_http.start():
+            def _restart():
+                _EXIT["code"] = maintenance.RESTART_EXIT_CODE
+                main_task.cancel()
+            maintenance.on_restart = _restart
+            _supervise(maintenance.loop, "maintenance", respawn=True)
         _supervise(protocols.notify_trigger_watcher, "notify-watcher")
         _supervise(reaper.reaper_task, "reaper", respawn=True)
         _supervise(status_task, "status", respawn=True)
@@ -398,8 +419,7 @@ async def main():
         # finally below runs and the exit is clean) instead of an instant kill. Windows
         # has no SIGTERM handler support; Ctrl-C and Enter work there as before.
         with contextlib.suppress(NotImplementedError, AttributeError, RuntimeError):
-            asyncio.get_running_loop().add_signal_handler(
-                signal.SIGTERM, asyncio.current_task().cancel)
+            asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, main_task.cancel)
         try:
             try:
                 await aioconsole.ainput("")
@@ -408,8 +428,10 @@ async def main():
                 logger.info("no interactive stdin; running until terminated")
                 await asyncio.Event().wait()
         finally:
-            logger.info("shutting down")
-            await discord_status.stopped()   # no-op without a webhook; never raises
+            restarting = _EXIT["code"] == maintenance.RESTART_EXIT_CODE
+            logger.info("shutting down%s", " for a planned restart" if restarting else "")
+            server_stats.save()
+            await discord_status.stopped(restarting)   # no-op without a webhook; never raises
 
 
 if __name__ == "__main__":
@@ -417,3 +439,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, EOFError, asyncio.CancelledError):
         print("\nserver stopped")
+    if _EXIT["code"]:
+        sys.exit(_EXIT["code"])     # systemd's Restart=on-failure brings it back up

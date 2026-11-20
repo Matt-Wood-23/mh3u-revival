@@ -177,6 +177,9 @@ set_env MH3U_ADVERTISE "$PUBLIC_IP"
 set_env MH3U_RELAY "$RELAY_MODE"
 # The status page is on unless you set MH3U_STATUS_PORT=0 yourself.
 grep -q '^MH3U_STATUS_PORT=' "$ENV_FILE" || set_env MH3U_STATUS_PORT "$DEFAULT_STATUS_PORT"
+# Admin port for announcements and planned restarts: 127.0.0.1 only, never opened in a
+# firewall. Use it over SSH (docs/HOSTING.md, "Announcements and planned restarts").
+grep -q '^MH3U_ADMIN_PORT=' "$ENV_FILE" || set_env MH3U_ADMIN_PORT 8081
 STATUS_PORT="$(get_env MH3U_STATUS_PORT)"
 [[ "$STATUS_PORT" =~ ^[0-9]+$ ]] || STATUS_PORT=0
 # systemd reads this file as root, so the server doesn't need to; webhook URLs are secrets.

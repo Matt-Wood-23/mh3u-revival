@@ -192,6 +192,9 @@ same hall and enter your room.
 | `MH3U_BIND` | `0.0.0.0` | bind address (set `127.0.0.1` to restrict to local) |
 | `MH3U_HALL_MAX` | `16` | hunters who can share a **gathering hall / lobby** at once (each then forms their own hunt room). The hall is server-roster-fed, so this is safe to raise; the game renders large halls fine. Bump for a bigger community hub. |
 | `MH3U_ROOM_MAX` | `4` | hunters per **hunt room**. This is the game's own P2P limit — **leave it at 4**; the client isn't built for more in one hunt. Exposed only for completeness. |
+| `MH3U_HALL_NAMES` | *(unset)* | comma-separated hall names, e.g. `Americas,Europe,Asia/Oceania`. Sets the number of halls too (then `MH3U_NUM_WORLDS` is ignored). Unset = `Gathering Hall 1..N`. A name can carry translations, `\|`-separated in the order EN\|FR\|IT\|DE\|ES (`Americas\|Amériques\|Americhe\|Amerika\|Américas`): the EU game shows the player's language. Names are cut to 24 characters; `:` is replaced. |
+| `MH3U_HALL_NAMES_JP` | *(unset)* | names for the Japanese game's copies of the halls, by position (e.g. `南北アメリカ,ヨーロッパ,アジア・オセアニア`). Unset = the English names. Every hall exists twice: a copy the US/EU games list and a copy the JP game lists, because the two need different name formats. Players of all three versions still share halls (counts, lobby chat) and join each other's rooms. |
+| `MH3U_HALL_TYPE` | `1` | the hall type, which picks the description under the world list: 1 = all HR (default), 2 = G Rank, 3 = High Rank, 4 = Novice, 5 = Help wanted. Text only; the game doesn't enforce the HR ranges. |
 | `MH3U_NUM_WORLDS` | `1` | number of gathering **worlds** advertised on the world-select screen. Rooms are global (not tied to a world), so one world is honest for a small server; raise to seed more world entries. |
 | `MH3U_NOTIFY_ON` | `1` | on room leave/disconnect, notify the remaining players so their game drops the leaver (the rejoin fix — works for any host, local or remote). Leave on. |
 | `MH3U_HOST_FREE` | `0` | legacy fallback for the same fix: poke the departed guest's slot directly in the **host Cemu's** RAM. Only works when the server runs **on the same machine as the host Cemu**; superseded by `MH3U_NOTIFY_ON`. |
@@ -201,6 +204,10 @@ same hall and enter your room.
 | `MH3U_RELAY_ADVERTISE` | = `MH3U_ADVERTISE` | address players are told to send relayed traffic to. Only set this if the relay is reachable on a different address than the server. |
 | `MH3U_RELAY_PORT_START` / `_END` | `27100` / `27387` | UDP port pool for relayed links, one port per player pair. 288 ports covers the default room cap. **These must be forwarded** if you relay. |
 | `MH3U_REAP_TIMEOUT` | `45` | seconds of silence before a ghost connection is reaped (`0` disables — use while debugging with a paused Cemu) |
+| `MH3U_STATUS_PORT` | `0` (off) | TCP port for a read-only status page: `http://<server>:<port>/status` returns player, room and hall counts as JSON (counts only, no names or IPs). The launcher reads it to show "12 hunters online". Open this TCP port in your firewall too. |
+| `MH3U_DISCORD_STATUS_WEBHOOK` | (none) | a Discord webhook URL. The server keeps one message in that channel up to date with the player and room counts. |
+| `MH3U_DISCORD_ALERT_WEBHOOK` | (none) | a Discord webhook URL for alerts: a post when the server starts, stops, or comes back after a crash or reboot. Can be the same URL as the status one. |
+| `MH3U_SERVER_NAME` | `MH3U Revival server` | the name the Discord messages use |
 
 > **Rejoin fix note:** since 2026-07-02 the leave/rejoin fix is a standard NEX
 > notification pushed by the server, so it works no matter where the room's host is —

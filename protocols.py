@@ -411,13 +411,14 @@ class MatchMakingServer(_Trace, matchmaking.MatchMakingServer):
         # after JoinWorld to enumerate the *lobbys inside the joined world*. Returning []
         # is FATAL: the client raises 0x4a000205 "Failed to find lobby" -> "you have been
         # disconnected" (root-caused 2026-06-18, see CommunityRegistry docstring). So return
-        # >=1 lobby gathering. owner is 0 here (no per-owner filter); the world context isn't
-        # in this request, so we advertise the whole lobby set for now.
+        # >=1 lobby gathering. owner = the world's attribs[1] (each world names its own
+        # lobby's owner); with owner 0 the world the client last joined picks the lobby.
         import os
         if os.environ.get("MH3U_EMPTY_LOBBYS") == "1":
             logger.info("find_by_owner: owner=%s (pid=%s) -> [] (MH3U_EMPTY_LOBBYS=1)", owner, _pid(client))
             return []
-        lobbys = matchmaking_handlers.COMMUNITY.lobby_gatherings()
+        lobbys = matchmaking_handlers.COMMUNITY.lobby_gatherings(
+            owner, getattr(client, "_mh3u_world", None))
         logger.info("find_by_owner(FindLobbys): owner=%s (pid=%s) -> %d lobby(s)",
                     owner, _pid(client), len(lobbys))
         return lobbys
@@ -529,7 +530,7 @@ class MatchMakingServer(_Trace, matchmaking.MatchMakingServer):
         sess = matchmaking_handlers.REGISTRY.sessions.get(gid)
         comm = matchmaking_handlers.COMMUNITY.communities.get(gid)
         if sess:
-            resp.result, resp.gathering = True, sess.gathering
+            resp.result, resp.gathering = True, matchmaking_handlers.room_view(client, sess.gathering)
         elif comm:
             resp.result, resp.gathering = True, comm.pg
         else:
@@ -571,6 +572,8 @@ class MatchMakingServerExt(_Trace, matchmaking.MatchMakingServerExt):
             # Backing out of a world/lobby (EndParticipation fires for the world gid 0x10N
             # and its lobby 0x20N) -> drop membership so the Population count on the World/
             # Lobby list reflects the real live occupancy for everyone else.
+            if getattr(client, "_mh3u_world", None) == gid:
+                del client._mh3u_world   # left that world; the next join sets the new one
             pop = matchmaking_handlers.COMMUNITY.communities[gid].pg.num_participants
             logger.info("end_participation: HALL gid=0x%x (pid=%s) -> left (num_participants=%d)",
                         gid, pid, pop)
@@ -811,6 +814,21 @@ def _shout_text(raw):
         return ""
 
 
+def _shout_for(raw, sender_jp, recipient_jp):
+    """A shout as the recipient's game build accepts it. The payload carries a tab-separated
+    context string: hall, lobby, room, account, hunter name, LANGUAGE, ..., text. The
+    Western builds drop a shout tagged "jpn" (JP -> US chat never showed while US -> JP did,
+    2026-11-20; "spa"/"eng" show everywhere), so a JP player's shout to a US/EU player is
+    tagged "eng". Same length, so no length field in the message changes."""
+    if not (sender_jp and recipient_jp is False):
+        return raw
+    parts = bytes(raw).split(b"	")
+    if len(parts) < 10 or parts[5] != b"jpn":
+        return raw
+    parts[5] = b"eng"
+    return b"	".join(parts)
+
+
 def _shout_targets(sender):
     """Live pids to deliver a shout to: the sender's MOST-SPECIFIC gathering. MH3U's
     UserMessage layout does NOT match NintendoClients' (the decoded recipient comes out
@@ -834,7 +852,8 @@ def _shout_targets(sender):
         if not pids:                   # not in a room -> hall/lobby scope
             for c in matchmaking_handlers.COMMUNITY.communities.values():
                 if sender in getattr(c, "participants", ()):
-                    pids |= set(c.participants)
+                    members = getattr(c, "members", None)   # incl. the hall's JP/Western copy
+                    pids |= members() if members else set(c.participants)
             pids -= in_room
     except Exception as e:
         logger.info("  -> SHOUT target-resolve error: %s", e)
@@ -891,6 +910,8 @@ class MessageDeliveryServer(_Trace, messaging.MessageDeliveryServer):
         sender = _pid(client)
         raw = input.get()                      # exact request body (anydata message) -- forwarded verbatim
         logger.info("SHOUT pid=%s raw=%dB text=%r", sender, len(raw), _shout_text(raw))
+        if os.environ.get("MH3U_DEBUG_ROOMDATA") == "1":
+            logger.info("  shout raw (pid=%s): %s", sender, bytes(raw).hex())
 
         # Rate-limit the RELAY only (a modified client can spam DeliverMessage; each fans out
         # 1->N). Over the bucket we drop the relay but STILL reply below — gating the reply
@@ -899,6 +920,7 @@ class MessageDeliveryServer(_Trace, messaging.MessageDeliveryServer):
         if limits.shout_allowed(sender):
             targets = _shout_targets(sender)
             relayed = 0
+            sender_jp = getattr(client, "_mh3u_jp", None)
             for pid in targets:
                 conn = matchmaking_handlers.CLIENTS.get(pid)
                 if conn is None:
@@ -907,7 +929,8 @@ class MessageDeliveryServer(_Trace, messaging.MessageDeliveryServer):
                     await conn.request(
                         messaging.MessageDeliveryProtocol.PROTOCOL_ID,
                         messaging.MessageDeliveryProtocol.METHOD_DELIVER_MESSAGE,
-                        raw, noresponse=True)
+                        _shout_for(raw, sender_jp, getattr(conn, "_mh3u_jp", None)),
+                        noresponse=True)
                     relayed += 1
                 except Exception as e:
                     logger.info("  -> SHOUT relay to pid=%s failed: %s", pid, e)

@@ -17,6 +17,7 @@ one live Cemu room-host reveals the slot->meaning map instantly (the server logs
 the session struct). The mechanics here are game-agnostic and already correct.
 """
 import asyncio
+import copy
 import logging
 import os
 import secrets
@@ -212,8 +213,107 @@ HALL_MAX = limits._int_env("MH3U_HALL_MAX", 16)
 # keeps the world-select screen honest for a small server. Bump (MH3U_NUM_WORLDS) to seed more.
 NUM_WORLDS = limits._int_env("MH3U_NUM_WORLDS", 1)
 
+# Hall names, comma-separated (e.g. "Americas,Europe,Asia/Oceania"). When set, they also set
+# the number of halls (MH3U_NUM_WORLDS is ignored). Unset -> "Gathering Hall 1..N".
+# A name can carry its translations, '|'-separated in the game's order EN|FR|IT|DE|ES
+# (e.g. "Americas|Amériques|Americhe|Amerika|Américas"); missing ones use the English name.
+# ':' is the EU build's language separator, so it is replaced; HALL_NAME_MAX keeps a name
+# inside the smallest name buffer seen in the game (the JP build's 0x20 UTF-16 chars).
+HALL_NAME_MAX = 24
+HALL_LANGS = 5      # EN, FR, IT, DE, ES: the original Western hall names (Pretendo's data)
 
-def _make_official(gid, name):
+
+def _clean_name(text):
+    return " ".join(text.replace(":", " ").split())[:HALL_NAME_MAX].strip()
+
+
+def _hall_langs(raw, count):
+    """[[EN, FR, IT, DE, ES], ...] per hall, from MH3U_HALL_NAMES."""
+    halls = []
+    for part in (raw or "").split(","):
+        names = [_clean_name(n) for n in part.split("|")][:HALL_LANGS]
+        if names and names[0]:
+            halls.append([n or names[0] for n in names] + [names[0]] * (HALL_LANGS - len(names)))
+    return halls or [["Gathering Hall %d" % i] * HALL_LANGS for i in range(1, max(count, 1) + 1)]
+
+
+def _hall_names(raw, count):
+    """The halls' English names (labels)."""
+    return [langs[0] for langs in _hall_langs(raw, count)]
+
+
+MAX_HALLS = 15      # gid scheme below: Western halls 0x101..0x10F, JP copies 0x111..0x11F
+HALL_NAMES_LANGS = _hall_langs(os.environ.get("MH3U_HALL_NAMES"), NUM_WORLDS)[:MAX_HALLS]
+HALL_NAMES = [langs[0] for langs in HALL_NAMES_LANGS]
+NUM_WORLDS = len(HALL_NAMES)
+# Optional names for the JP game's copies (e.g. "アメリカ,ヨーロッパ,アジア・オセアニア"), by
+# position; a missing one uses the HALL_NAMES entry.
+_jp = [n for n in (_hall_names(os.environ.get("MH3U_HALL_NAMES_JP"), 0)
+                   if os.environ.get("MH3U_HALL_NAMES_JP") else [])]
+HALL_NAMES_JP = [_jp[i] if i < len(_jp) else HALL_NAMES[i] for i in range(NUM_WORLDS)]
+
+# Which game builds list a hall (attribs[2]). The world list keeps a hall only if
+# attribs[2] & mask != 0, where mask is the console region bit (JP 1, US 2, EU 4) and the
+# US/EU builds widen theirs to 6 (CNEXSystem::PhaseUpdateWorldWait, US 0x030ccf30; the JP
+# build has no widening, verified 2026-11-20). The EU build needs a ':'-packed name and the
+# JP build shows a packed name EMPTY, so every hall exists twice: a Western copy (packed
+# name, mask 6) and a JP copy (plain name, mask 1). This is how the original server split
+# them (Pretendo's data: JP worlds attribs[2]=1, Western worlds 2). Rooms stay global, so
+# JP and Western players still join each other's rooms.
+REGION_WEST = 0x6
+REGION_JP = 0x1
+JP_GID_OFFSET = 0x10
+# Lobby owner ids: a world's attribs[1] names the owner whose lobbies FindLobbys
+# (find_by_owner) lists, so each world shows only its own lobby. Not a player PID range.
+LOBBY_OWNER_BASE = 0x10000
+# A world's attribs[0] = hall type, which picks the description under the world list (the
+# original server: 1 Free, 2 G Rank, 3 High Rank, 4 Novice, 5 Help wanted). It's text only:
+# HR limits in it aren't enforced (tested 2026-11-20). Before this, worlds sent their gid
+# there, which the game read as a type mod 5 (0x101 -> "HR 6 and above").
+HALL_TYPE = limits._int_env("MH3U_HALL_TYPE", 1)
+
+
+ROOM_REGION_JP, ROOM_REGION_WEST = 1, 2     # a room's attribs[2], as the games write it
+# A room's application data (309 bytes) ends with the low byte of the hall (world) it was
+# made in: 0x13 for the JP Asia/Oceania copy 0x113, 0x03 for the Western 0x103 (captured
+# 2026-11-20). The joiner's game looks that hall up for the World column and to enter.
+ROOM_HALL_OFFSET = 0x134
+
+
+def room_view(client, gathering):
+    """A room as this client's game build should see it. A room carries the lobby it was
+    made in (attribs[1]) and its creator's region group (attribs[2]: JP 1, US/EU 2). Seen from
+    the other build (JP vs Western), the lobby is one that build doesn't know and the region
+    doesn't match its hall's, and the game refuses to enter ("could not enter the room",
+    no request sent; 2026-11-20) and leaves the World column blank. With one hall for every
+    region (11-18) JP and US rooms joined fine. So both are swapped for this build's own,
+    in a copy of the gathering; the stored room is never changed."""
+    jp = getattr(client, "_mh3u_jp", None)
+    attribs = list(getattr(gathering, "attribs", None) or [])
+    if jp is None or len(attribs) < 3:
+        return gathering
+    local = [attribs[0], COMMUNITY.local_gid(attribs[1], jp), attribs[2]] + attribs[3:]
+    if jp and not attribs[2] & REGION_JP:
+        local[2] = ROOM_REGION_JP
+    elif not jp and not attribs[2] & REGION_WEST:
+        local[2] = ROOM_REGION_WEST
+    data = bytes(getattr(gathering, "application_data", b"") or b"")
+    local_data = data
+    if len(data) > ROOM_HALL_OFFSET:
+        hall = 0x100 | data[ROOM_HALL_OFFSET]
+        mine = COMMUNITY.local_gid(hall, jp)
+        if mine != hall:
+            local_data = (data[:ROOM_HALL_OFFSET] + bytes([mine & 0xFF])
+                          + data[ROOM_HALL_OFFSET + 1:])
+    if local == attribs and local_data == data:
+        return gathering
+    view = copy.copy(gathering)
+    view.attribs = local
+    view.application_data = local_data
+    return view
+
+
+def _make_official(gid, name, region=0xFFFFFFFF, lobby_owner=0, hall_type=None):
     # Values chosen to pass the game's validation: server-owned, nonzero
     # participant counts (the lobby phase computes max/num - 1 and - 2, so 0
     # would underflow), a valid participation window (NEX DateTime is a packed
@@ -241,7 +341,10 @@ def _make_official(gid, name):
     # the chat lobby == this (already-seeded) community and the second join succeeds.
     # attribs[2] = region bitmask. PhaseUpdateWorldWait (FUN_030ccd88) filters each
     # returned world by (attrib[2] & console_region_mask); 0xFFFFFFFF = match every region.
-    c.attribs = [gid, 0, 0xFFFFFFFF, 0, 0, 0]
+    # (That is the LOBBY's attribs[0]. A WORLD's attribs[0] is its hall type instead, see
+    # HALL_TYPE; worlds pass hall_type, lobbies keep their own gid.)
+    # attribs[1] = owner of this world's lobbies (see LOBBY_OWNER_BASE); 0 for lobbies.
+    c.attribs = [gid if hall_type is None else hall_type, lobby_owner, region, 0, 0, 0]
     c.application_buffer = b""
     c.participation_start = common.DateTime.make(2013, 1, 1)
     c.participation_end = common.DateTime.future()
@@ -267,13 +370,21 @@ class _Community:
         self.participants = set()
         self.official = official
         self.offset = offset
+        self.twin = None    # the same hall/lobby's copy for the other game builds (JP/Western)
         pg.num_participants = offset
         # Display the real hall cap (not 98/99): list screens render max as
         # (max_participants - offset), so max = HALL_MAX + offset shows /HALL_MAX.
         pg.max_participants = HALL_MAX + offset
 
+    def members(self):
+        """Everyone in this hall/lobby, counting its JP/Western copy too: players of both
+        builds share the hall's population and its hall chat."""
+        return self.participants | self.twin.participants if self.twin else set(self.participants)
+
     def recount(self):
-        self.pg.num_participants = len(self.participants) + self.offset
+        n = len(self.members())
+        for c in (self, self.twin) if self.twin else (self,):
+            c.pg.num_participants = n + c.offset
 
 
 class CommunityRegistry:
@@ -295,41 +406,69 @@ class CommunityRegistry:
         # explicitly, NOT via the `official` flag — pre-seeded LOBBIES are official=False (to
         # stay out of the hall list) yet must never be reaped.
         self._runtime_gids = set()
-        for i in range(1, NUM_WORLDS + 1):
-            gid = 0x100 + i
-            # Hall display name. The EUR build (region==4) parses names as a multi-
-            # language ':'-separated packed string (EN:FR:DE:IT:ES); a SINGLE-segment
-            # name makes its parser over-read -> wcslen(null+2) crash (root-caused
-            # 2026-06-26). Sending the name as repeated ':'-segments keeps the EUR
-            # parser in-bounds AND renders cleanly on every region: US/JP (region!=4)
-            # skip the language formatter and take the first segment, so all regions
-            # show "Gathering Hall N" (verified live US+EU 2026-06-27). Unconditional —
-            # there is no downside on any region, so no per-client region detection is
-            # needed. 8 segments (> the 5 languages) gives the parser extra margin.
-            _name = ("Gathering Hall %d" % i)
-            _hallname = ":".join([_name] * 8)
-            self.communities[gid] = _Community(
-                _make_official(gid, _hallname), official=True, offset=2)
-        # One lobby per world (non-official so it never appears in the world/hall list).
-        # gid scheme: world 0x10N -> lobby 0x20N. attribs[0]=self gid = paired chat lobby.
         self.lobbies = {}                    # world_gid -> lobby gid
+        self.lobby_owner = {}                # lobby owner id (world attribs[1]) -> lobby gid
+        self.jp_gids = set()                 # the JP copies (worlds and lobbies)
+        # Each hall exists twice (see REGION_WEST / REGION_JP): the Western copy at 0x10N
+        # and the JP copy at 0x11N, each with its own lobby (0x20N / 0x21N). Both carry
+        # the same .label so the status page counts them as one hall.
+        # Western name: the EUR build (region==4) parses hall names as a multi-language
+        # ':'-separated packed string; a single-segment name makes its parser over-read ->
+        # wcslen(null+2) crash (root-caused 2026-06-26 from a full dump of the real EU
+        # game). Sent exactly as the original server did: 5 segments EN:FR:IT:DE:ES. (Until
+        # 2026-11-20 we sent 8 copies; the EU world list then showed the raw string.)
+        # JP name: plain. The JP build shows a packed name EMPTY (found live by the
+        # MEKCCK fork, e29d282).
         for i in range(1, NUM_WORLDS + 1):
-            world_gid = 0x100 + i
-            lobby_gid = 0x200 + i
-            self.communities[lobby_gid] = _Community(
-                _make_official(lobby_gid, "Lobby %d" % i), official=False, offset=1)
-            self.lobbies[world_gid] = lobby_gid
+            label = HALL_NAMES[i - 1]
+            copies = []
+            for world_gid, name, region in (
+                    (0x100 + i, ":".join(HALL_NAMES_LANGS[i - 1]), REGION_WEST),
+                    (0x100 + JP_GID_OFFSET + i, HALL_NAMES_JP[i - 1], REGION_JP)):
+                lobby_gid = world_gid + 0x100
+                owner = LOBBY_OWNER_BASE + world_gid
+                world = _Community(_make_official(world_gid, name, region, owner, HALL_TYPE),
+                                   official=True, offset=2)
+                world.label = label
+                self.communities[world_gid] = world
+                # The lobby: non-official so it never appears in the world/hall list;
+                # attribs[0] = its own gid = the paired chat lobby.
+                lobby = _Community(_make_official(lobby_gid, "Lobby %d" % i),
+                                   official=False, offset=1)
+                lobby.pg.owner = owner
+                self.communities[lobby_gid] = lobby
+                self.lobbies[world_gid] = lobby_gid
+                self.lobby_owner[owner] = lobby_gid
+                copies.append((world, lobby))
+                if region == REGION_JP:
+                    self.jp_gids |= {world_gid, lobby_gid}
+            (w1, l1), (w2, l2) = copies
+            w1.twin, w2.twin, l1.twin, l2.twin = w2, w1, l2, l1
+        logger.info("halls: %s (up to %d hunters each; JP copies: %s)",
+                    ", ".join(HALL_NAMES), HALL_MAX, ", ".join(HALL_NAMES_JP))
 
     def officials(self):
         # Pre-seeded official halls (NOT filtered by owner — they are server-owned
         # now, owner=SECURE_SERVER_PID, so an owner==0 filter would drop them all).
         return [c.pg for c in self.communities.values() if c.official]
 
-    def lobby_gatherings(self):
-        # The lobbys (sub-gatherings) returned by FindLobbys (find_by_owner). For now
-        # every world advertises the same lobby set; refine to per-world once the
-        # world->lobby selection (tgt_lobby) is mapped live.
+    def lobby_gatherings(self, owner=0, world=None):
+        """The lobby(s) FindLobbys (find_by_owner) returns: the one owned by `owner` (a
+        world's attribs[1]), else the lobby of the world the client last joined (the
+        MEKCCK fork's approach, b3f08e4), else every lobby (the old behaviour)."""
+        if owner in self.lobby_owner:
+            return [self.communities[self.lobby_owner[owner]].pg]
+        if world in self.lobbies:
+            return [self.communities[self.lobbies[world]].pg]
         return [self.communities[g].pg for g in self.lobbies.values()]
+
+    def local_gid(self, gid, jp):
+        """gid as a JP (jp=True) or Western game build knows it: a hall or lobby of the
+        other build's copy maps to this build's copy; anything else is unchanged."""
+        c = self.communities.get(gid)
+        if c is None or c.twin is None or (gid in self.jp_gids) == jp:
+            return gid
+        return c.twin.pg.id
 
     def by_gids(self, gids):
         return [self.communities[g].pg for g in gids if g in self.communities]
@@ -426,7 +565,9 @@ def participant_details(gid):
         pids = sorted(sess.participants)
     else:
         comm = COMMUNITY.communities.get(gid)
-        pids = sorted(comm.participants) if comm else []
+        # members(): the hall's JP/Western copy too. A room's host must be in the joiner's
+        # lobby roster or the joiner's game blanks the room's World and won't enter it.
+        pids = sorted(comm.members()) if comm else []
     out = []
     for pid in pids:
         d = matchmaking.ParticipantDetails()
@@ -519,6 +660,9 @@ class MatchmakeExtensionServer(matchmaking.MatchmakeExtensionServer):
         logger.info("create_matchmake_session: gid=0x%x host=%s msg=%r game_mode=%s attribs=%s applen=%d",
                     sess.gid, host, message, getattr(gathering, "game_mode", "?"),
                     getattr(gathering, "attribs", "?"), len(getattr(gathering, "application_data", b"")))
+        if os.environ.get("MH3U_DEBUG_ROOMDATA") == "1":
+            logger.info("  roomdata gid=0x%x host=%s: %s", sess.gid, host,
+                        bytes(getattr(gathering, "application_data", b"") or b"").hex())
         output.u32(sess.gid)
         output.buffer(sess.key)
 
@@ -536,7 +680,7 @@ class MatchmakeExtensionServer(matchmaking.MatchmakeExtensionServer):
     async def browse_matchmake_session(self, client, search_criteria, range):
         # Return ALL live rooms regardless of criteria for now (MH3U's search-criteria
         # semantics not mapped yet) so the joiner reliably sees the host's room.
-        results = [s.gathering for s in REGISTRY.sessions.values()]
+        results = [room_view(client, s.gathering) for s in REGISTRY.sessions.values()]
         logger.info("browse: %d live room(s) gids=%s (pid=%s)",
                     len(results), [hex(g.id) for g in results], _pid(client))
         off = getattr(range, "offset", 0) or 0
@@ -587,6 +731,11 @@ class MatchmakeExtensionServer(matchmaking.MatchmakeExtensionServer):
 
     async def update_application_buffer(self, *args):
         # MH3U sets per-session app data; accept + ignore for now.
+        if os.environ.get("MH3U_DEBUG_ROOMDATA") == "1":
+            client, rest = (args[0], args[1:]) if args else (None, ())
+            logger.info("  roomdata update (pid=%s): %s", _pid(client) if client else "?",
+                        " | ".join(bytes(a).hex() if isinstance(a, (bytes, bytearray))
+                                   else repr(a) for a in rest))
         return None
 
     # --- friend / notification stubs (no friends backend) ------------------
@@ -651,6 +800,9 @@ class MatchmakeExtensionServer(matchmaking.MatchmakeExtensionServer):
     async def join_community(self, client, gid, message, password):
         pid = _pid(client)
         COMMUNITY.join(gid, pid)
+        if gid in COMMUNITY.lobbies:
+            client._mh3u_world = gid     # FindLobbys fallback when the request has no owner
+            client._mh3u_jp = gid in COMMUNITY.jp_gids   # which game build this client runs
         logger.info("join_community: pid=%s -> hall 0x%x (now %d)",
                     pid, gid, COMMUNITY.communities[gid].pg.num_participants)
 

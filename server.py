@@ -27,6 +27,7 @@ sys.path.insert(0, _HERE)
 import asyncio
 import concurrent.futures
 import contextlib
+import signal
 import aioconsole
 
 from nintendo.nex import rmc, authentication, common, settings
@@ -39,6 +40,8 @@ import limits
 import natcheck
 import matchmaking_handlers
 import relay
+import status_http
+import discord_status
 
 def _log_dir():
     # Frozen (PyInstaller onefile): sys.executable is the real .exe path (the bundle
@@ -384,19 +387,33 @@ async def main():
         logger.info("listening: auth=%s:%d  secure=%s:%d  (Ctrl-C / enter to stop)",
                     config.HOST, config.AUTH_PORT, config.HOST, config.SECURE_PORT)
         await natcheck.start(config.HOST)
+        await status_http.start(config.HOST)
         _supervise(protocols.notify_trigger_watcher, "notify-watcher")
         _supervise(reaper.reaper_task, "reaper", respawn=True)
         _supervise(status_task, "status", respawn=True)
+        if discord_status.enabled():
+            await discord_status.started()
+            _supervise(discord_status.status_loop, "discord", respawn=True)
+        # systemd stops the service with SIGTERM. Turn that into a normal shutdown (so the
+        # finally below runs and the exit is clean) instead of an instant kill. Windows
+        # has no SIGTERM handler support; Ctrl-C and Enter work there as before.
+        with contextlib.suppress(NotImplementedError, AttributeError, RuntimeError):
+            asyncio.get_running_loop().add_signal_handler(
+                signal.SIGTERM, asyncio.current_task().cancel)
         try:
-            await aioconsole.ainput("")
-        except (EOFError, RuntimeError):
-            # No interactive stdin (detached/background). Run until killed.
-            logger.info("no interactive stdin; running until terminated")
-            await asyncio.Event().wait()
+            try:
+                await aioconsole.ainput("")
+            except (EOFError, RuntimeError):
+                # No interactive stdin (detached/background). Run until killed.
+                logger.info("no interactive stdin; running until terminated")
+                await asyncio.Event().wait()
+        finally:
+            logger.info("shutting down")
+            await discord_status.stopped()   # no-op without a webhook; never raises
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except (KeyboardInterrupt, EOFError):
+    except (KeyboardInterrupt, EOFError, asyncio.CancelledError):
         print("\nserver stopped")

@@ -1,0 +1,132 @@
+"""Gathering halls: a Western and a JP copy of each, one lobby per hall."""
+import matchmaking_handlers as mh
+
+
+def _registry(monkeypatch, names, jp=None):
+    monkeypatch.setattr(mh, "HALL_NAMES", names)
+    monkeypatch.setattr(mh, "HALL_NAMES_LANGS", [[n] * mh.HALL_LANGS for n in names])
+    monkeypatch.setattr(mh, "HALL_NAMES_JP", jp or list(names))
+    monkeypatch.setattr(mh, "NUM_WORLDS", len(names))
+    return mh.CommunityRegistry()
+
+
+def test_each_hall_has_a_western_and_a_jp_copy(monkeypatch):
+    r = _registry(monkeypatch, ["Americas", "Europe"], ["アメリカ", "ヨーロッパ"])
+    west, jp = r.communities[0x101].pg, r.communities[0x111].pg
+    assert west.attribs[2] == mh.REGION_WEST and jp.attribs[2] == mh.REGION_JP
+    assert west.description == ":".join(["Americas"] * 5)      # EU build: EN:FR:IT:DE:ES
+    assert jp.description == "アメリカ"                         # JP build shows packed names empty
+    assert r.communities[0x112].pg.description == "ヨーロッパ"
+    assert {pg.id for pg in r.officials()} == {0x101, 0x102, 0x111, 0x112}
+    # US/EU consoles widen their region mask to 6, a JP console keeps 1: each sees one copy.
+    assert {pg.id for pg in r.officials() if pg.attribs[2] & 6} == {0x101, 0x102}
+    assert {pg.id for pg in r.officials() if pg.attribs[2] & 1} == {0x111, 0x112}
+
+
+def test_each_world_lists_only_its_own_lobby(monkeypatch):
+    r = _registry(monkeypatch, ["Americas", "Europe"])
+    assert r.lobbies == {0x101: 0x201, 0x102: 0x202, 0x111: 0x211, 0x112: 0x212}
+    for world, lobby in r.lobbies.items():
+        owner = r.communities[world].pg.attribs[1]
+        assert [pg.id for pg in r.lobby_gatherings(owner)] == [lobby]
+        assert r.communities[lobby].pg.owner == owner
+        assert r.communities[lobby].pg.attribs[0] == lobby          # paired chat lobby
+        assert [pg.id for pg in r.lobby_gatherings(0, world)] == [lobby]
+    assert len(r.lobby_gatherings(0, None)) == 4                      # old behaviour
+
+
+def test_status_counts_both_copies_as_one_hall(monkeypatch):
+    import status_http
+    r = _registry(monkeypatch, ["Americas", "Europe"], ["アメリカ", "ヨーロッパ"])
+    r.join(0x101, 1001)
+    r.join(0x111, 1002)
+    r.join(0x102, 1003)
+    monkeypatch.setattr(mh, "COMMUNITY", r)
+    halls = status_http.snapshot()["halls"]
+    assert [(h["name"], h["players"]) for h in halls] == [("Americas", 2), ("Europe", 1)]
+
+
+def test_both_copies_share_population_and_type(monkeypatch):
+    r = _registry(monkeypatch, ["Americas"])
+    west, jp = r.communities[0x101], r.communities[0x111]
+    assert west.twin is jp and jp.twin is west
+    assert r.communities[0x201].twin is r.communities[0x211]
+    r.join(0x101, 1001)                 # a US player
+    r.join(0x111, 1002)                 # a JP player in the same hall
+    # Both copies show 2 hunters (world list renders num - 2).
+    assert west.pg.num_participants == jp.pg.num_participants == 2 + 2
+    assert west.members() == jp.members() == {1001, 1002}
+    r.leave(0x111, 1002)
+    assert west.pg.num_participants == jp.pg.num_participants == 1 + 2
+    # Worlds carry the hall type in attribs[0]; lobbies keep their own gid (chat lobby).
+    assert west.pg.attribs[0] == jp.pg.attribs[0] == mh.HALL_TYPE == 1
+    assert r.communities[0x201].pg.attribs[0] == 0x201
+
+
+def test_hall_chat_reaches_the_other_build(monkeypatch):
+    import protocols
+    r = _registry(monkeypatch, ["Americas"])
+    monkeypatch.setattr(mh, "COMMUNITY", r)
+    monkeypatch.setattr(mh, "CLIENTS", {1001: object(), 1002: object(), 1003: object()})
+    r.join(0x201, 1001)                 # US player in the Americas lobby
+    r.join(0x211, 1002)                 # JP player in the Americas lobby (JP copy)
+    assert protocols._shout_targets(1001) == {1001, 1002}
+
+
+def test_rooms_point_at_the_viewers_own_lobby(monkeypatch):
+    from types import SimpleNamespace
+    from nintendo.nex import matchmaking
+    r = _registry(monkeypatch, ["Americas", "Europe", "Asia/Oceania"])
+    monkeypatch.setattr(mh, "COMMUNITY", r)
+    room = matchmaking.MatchmakeSession()
+    room.attribs = [1, 0x213, 1, 0, 0, 0, 0, 0, 0]       # made in the JP Asia/Oceania lobby
+    room.application_data = bytes(0x134) + b""       # ...whose hall is 0x113
+    us, jp, unknown = SimpleNamespace(), SimpleNamespace(), SimpleNamespace()
+    us._mh3u_jp, jp._mh3u_jp = False, True                 # set by join_community
+    seen = mh.room_view(us, room)
+    assert seen is not room and seen.attribs[1] == 0x203   # the US build's Asia/Oceania lobby
+    assert seen.attribs[2] == 2                            # and the Western region group
+    assert seen.application_data[0x134] == 0x03            # and the Western hall 0x103
+    assert room.application_data[0x134] == 0x13
+    assert room.attribs[:3] == [1, 0x213, 1]               # the stored room is unchanged
+    assert mh.room_view(jp, room) is room                  # same build: as is
+    west_room = matchmaking.MatchmakeSession()
+    west_room.attribs = [1, 0x201, 2, 0, 0, 0, 0, 0, 0]   # a US room in Americas
+    assert mh.room_view(jp, west_room).attribs[:3] == [1, 0x211, 1]
+    assert mh.room_view(us, west_room) is west_room
+    assert mh.room_view(unknown, room) is room             # build not known yet: as is
+    assert r.local_gid(0x203, True) == 0x213 and r.local_gid(0x1001, True) == 0x1001
+
+
+def test_hall_names_with_translations():
+    langs = mh._hall_langs("Americas|Amériques|Americhe|Amerika|Américas, Europe|| Europa ,Asia", 1)
+    assert langs[0] == ["Americas", "Amériques", "Americhe", "Amerika", "Américas"]
+    assert langs[1] == ["Europe", "Europe", "Europa", "Europe", "Europe"]   # blanks -> English
+    assert langs[2] == ["Asia"] * 5
+    assert mh._hall_names("Americas|Amériques,Europe", 1) == ["Americas", "Europe"]
+    assert mh._hall_langs(None, 2) == [["Gathering Hall 1"] * 5, ["Gathering Hall 2"] * 5]
+
+
+def test_lobby_roster_lists_both_builds(monkeypatch):
+    r = _registry(monkeypatch, ["Asia/Oceania"])
+    monkeypatch.setattr(mh, "COMMUNITY", r)
+    r.join(0x201, 1001)                 # US player in the Western lobby
+    r.join(0x211, 1002)                 # JP room host in the JP copy of the lobby
+    assert [d.pid for d in mh.participant_details(0x201)] == [1001, 1002]
+    assert [d.pid for d in mh.participant_details(0x211)] == [1001, 1002]
+
+
+def test_jp_shouts_reach_western_players_tagged_eng():
+    import protocols
+    # A real JP room shout (captured 2026-11-20), the bytes up to and after the context string.
+    jp = bytes.fromhex(
+        "0c00557365724d657373616765009600000092000000000000000110000002000000000000000000"
+        "000000000000000000000000000000010000006900") + (
+        "Asia/Oceania\tLobby\t一狩りいこうぜ071\tCemuMH3U318b\tてst\tjpn\t\t\tM\t"
+        "よろしくお願いします！").encode() + b"\x00\x01\x00\x00"
+    us_view = protocols._shout_for(jp, True, False)
+    assert len(us_view) == len(jp) and b"\teng\t" in us_view and b"\tjpn\t" not in us_view
+    assert us_view.replace(b"\teng\t", b"\tjpn\t") == jp           # only the tag changed
+    assert protocols._shout_for(jp, True, True) is jp               # JP -> JP: as is
+    assert protocols._shout_for(jp, True, None) is jp               # recipient build unknown
+    assert protocols._shout_for(jp, False, False) is jp             # not from a JP player

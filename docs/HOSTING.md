@@ -234,7 +234,20 @@ curl -s -X POST --data-binary "Event quest night at 8pm ET!" localhost:8081/anno
 curl -s -X POST "localhost:8081/restart?wait=idle&max_minutes=60"
 curl -s localhost:8081/restart            # is one pending?
 curl -s -X POST localhost:8081/restart/cancel
+
+# who's online: hunter name, HR, account, game version, hall, room, time online
+curl -s localhost:8081/players
 ```
+
+The same port serves a dashboard page with all of this: who's online (refreshing), an
+announcement box and the restart buttons. Open it on your own PC through SSH:
+
+```sh
+ssh -N -L 18081:127.0.0.1:8081 <user>@<server>     # then open http://localhost:18081/
+```
+
+The admin port answers only requests addressed to localhost, so another website can't use
+a tunnel you have open. Player names appear only here, never on the public status page.
 
 `wait=empty` waits until nobody is online at all, `wait=now` restarts after a 15-second
 warning. Players see the plan in chat when it's scheduled, every 15 minutes while it

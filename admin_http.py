@@ -10,16 +10,24 @@ it can only be reached from the server machine itself, e.g. over SSH:
 
 /announce posts the request body as a chat message from "Server" to every player in a
 hall or room (?scope=halls or ?scope=rooms to narrow it). Long text is split into a few
-chat-sized messages. /restart: see maintenance.py.
+chat-sized messages. /restart: see maintenance.py. /players: who's online (hunter names,
+hall, room; who.py). / is a dashboard page for all of it (admin_page.py), opened through
+an SSH tunnel.
+
+Requests must name a local host (Host: localhost / 127.0.0.1) and, when a browser sends an
+Origin, come from a local page: a web page elsewhere can't use a tunnel you have open
+(cross-site requests or DNS rebinding).
 """
 import asyncio
 import json
 import logging
 import urllib.parse
 
+import admin_page
 import announce
 import limits
 import maintenance
+import who
 
 logger = logging.getLogger("mh3u.admin")
 
@@ -31,12 +39,39 @@ BODY_LIMIT = 2048
 _server = None
 
 
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _response(code, body, ctype):
+    reason = {200: "OK", 400: "Bad Request", 403: "Forbidden", 404: "Not Found",
+              405: "Method Not Allowed", 413: "Payload Too Large"}.get(code, "OK")
+    return (f"HTTP/1.1 {code} {reason}\r\nContent-Type: {ctype}\r\n"
+            f"Content-Length: {len(body)}\r\nCache-Control: no-store\r\n"
+            f"Connection: close\r\n\r\n").encode() + body
+
+
 def _json(code, obj):
-    reason = {200: "OK", 400: "Bad Request", 404: "Not Found", 405: "Method Not Allowed",
-              413: "Payload Too Large"}.get(code, "OK")
-    body = (json.dumps(obj) + "\n").encode()
-    return (f"HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\n"
-            f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n").encode() + body
+    return _response(code, (json.dumps(obj, ensure_ascii=False) + "\n").encode(),
+                     "application/json; charset=utf-8")
+
+
+def _host_name(value):
+    v = value.strip().lower()
+    if v.startswith("["):                       # [::1]:8081
+        return v[1:v.find("]")] if "]" in v else v
+    return v.rsplit(":", 1)[0] if v.count(":") == 1 else v
+
+
+def local_request(headers):
+    """True if the request names a local host and (from a browser) comes from a local page."""
+    host = headers.get("host")
+    if host is not None and _host_name(host) not in LOCAL_HOSTS:
+        return False                            # DNS rebinding: Host is the attacker's name
+    origin = headers.get("origin")
+    if origin is not None:
+        if (urllib.parse.urlsplit(origin.strip()).hostname or "") not in LOCAL_HOSTS:
+            return False                        # a cross-site request from another page
+    return True
 
 
 async def handle(method, target, body):
@@ -44,6 +79,14 @@ async def handle(method, target, body):
     url = urllib.parse.urlsplit(target)
     q = dict(urllib.parse.parse_qsl(url.query))
     path = url.path.rstrip("/") or "/"
+    if path == "/":
+        if method != "GET":
+            return _json(405, {"error": "GET"})
+        return _response(200, admin_page.PAGE.encode(), "text/html; charset=utf-8")
+    if path == "/players":
+        if method != "GET":
+            return _json(405, {"error": "GET"})
+        return _json(200, who.snapshot())
     if path == "/announce":
         if method != "POST":
             return _json(405, {"error": "POST the message text"})
@@ -76,12 +119,17 @@ async def _serve_one(reader, writer):
         head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), READ_TIMEOUT)
         lines = head.decode("latin-1").split("\r\n")
         method, target, _ = lines[0].split(" ", 2)
-        length = 0
+        headers = {}
         for line in lines[1:]:
             k, _, v = line.partition(":")
-            if k.strip().lower() == "content-length":
-                length = int(v.strip() or 0)
-        if length > BODY_LIMIT:
+            if k.strip():
+                headers[k.strip().lower()] = v.strip()
+        length = int(headers.get("content-length") or 0)
+        if not local_request(headers):
+            logger.warning("admin: refused a request for Host=%r Origin=%r",
+                           headers.get("host"), headers.get("origin"))
+            writer.write(_json(403, {"error": "local requests only"}))
+        elif length > BODY_LIMIT:
             writer.write(_json(413, {"error": f"at most {BODY_LIMIT} bytes"}))
         else:
             body = await asyncio.wait_for(reader.readexactly(length), READ_TIMEOUT) if length else b""
@@ -105,7 +153,8 @@ async def start(port=None):
         logger.error("admin port: could not listen on %s:%d (%s); continuing without it",
                      HOST, port, e)
         return None
-    logger.info("admin port: http://%s:%d (announce, restart; this machine only)", HOST, port)
+    logger.info("admin port: http://%s:%d (dashboard, players, announce, restart; this "
+                "machine only)", HOST, port)
     return _server
 
 

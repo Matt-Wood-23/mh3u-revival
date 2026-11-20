@@ -254,3 +254,47 @@ def test_admin_routes(monkeypatch):
 
 def test_admin_listens_on_localhost_only():
     assert admin_http.HOST == "127.0.0.1"
+
+
+def test_admin_refuses_other_sites_and_hosts():
+    ok = admin_http.local_request
+    assert ok({}) and ok({"host": "127.0.0.1:8081"}) and ok({"host": "localhost:18081"})
+    assert ok({"host": "[::1]:8081"})
+    assert ok({"host": "localhost:18081", "origin": "http://localhost:18081"})   # the page
+    assert not ok({"host": "evil.example:8081"})                    # DNS rebinding
+    assert not ok({"host": "localhost:8081", "origin": "https://evil.example"})   # cross-site
+    assert not ok({"host": "localhost:8081", "origin": "null"})     # sandboxed page
+
+
+def test_who_lists_players_with_names_and_places(monkeypatch):
+    import time as _time
+    import who
+    r, clients, reg = _world(monkeypatch)
+    a, b = _Conn(), _Conn()
+    clients.update({1: a, 2: b})
+    a._mh3u_jp, b._mh3u_jp = False, True
+    a._mh3u_since = b._mh3u_since = _time.time() - 125
+    a._mh3u_status = "3\t0x101\t0x201\t0x1001\t0x1\tHunt 80\t1\t4\tAlice\t42\t9\t1\t0\t0\t0\t"
+    b._mh3u_status = "2\t0x111\t0x211\t0x0\t0x1\tNot Login\t0\t0\tBob\t7\t9\t0\t0\t0\t0\t"
+    r.communities[0x201].participants.add(1)
+    r.communities[0x211].participants.add(2)
+    room = reg.create(types.SimpleNamespace(description="ignored"), 1)
+    who.note_shout(a, _player_shout(room.gid, text="hi"))
+    snap = who.snapshot()
+    by = {p["hunter"]: p for p in snap["players"]}
+    alice, bob = by["Alice"], by["Bob"]
+    assert (alice["hunter"], alice["hr"], alice["account"], alice["game"]) == (
+        "Alice", "42", "Acct01", "US/EU")
+    assert (alice["hall"], alice["room"]) == ("Americas", "Hunt 80")   # the game's room name
+    assert (bob["hunter"], bob["game"], bob["hall"], bob["room"]) == ("Bob", "JP", "Americas", "")
+    assert 120 <= alice["online_s"] <= 130
+    assert snap["rooms"] == [{"gid": "0x%x" % room.gid, "name": "Hunt 80", "players": 1}]
+    code, body = _admin("GET", "/players")
+    assert code == 200 and sorted(p["hunter"] for p in body["players"]) == ["Alice", "Bob"]
+
+
+def test_admin_dashboard_page():
+    resp = asyncio.run(admin_http.handle("GET", "/", b""))
+    head, _, page = resp.partition(b"\r\n\r\n")
+    assert head.startswith(b"HTTP/1.1 200") and b"text/html" in head
+    assert b"/players" in page and b"/announce" in page and b"innerHTML" not in page

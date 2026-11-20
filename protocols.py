@@ -21,6 +21,7 @@ import host_roster_free
 import limits
 import relay
 import relay_policy
+import who
 
 logger = logging.getLogger("mh3u.proto")
 
@@ -342,6 +343,7 @@ class SecureConnectionServer(_Trace, secure.SecureConnectionServer):
         # publish the live connection + RVCID->pid so NAT traversal can forward an
         # InitiateProbe to this peer (server->client RMC).
         matchmaking_handlers.CLIENTS[_pid(client)] = client
+        client._mh3u_since = time.time()          # "online for", on the admin page (who.py)
         matchmaking_handlers.CID_TO_PID[cid] = _pid(client)
         relay_policy.record_seen(_pid(client))
         logger.info("REGISTER pid=%s cid=%s urls=%s -> public=%s",
@@ -946,6 +948,7 @@ class MessageDeliveryServer(_Trace, messaging.MessageDeliveryServer):
         if os.environ.get("MH3U_DEBUG_ROOMDATA") == "1":
             logger.info("  shout raw (pid=%s): %s", sender, bytes(raw).hex())
         announce.remember(raw, sender)         # template + sender's language, for announcements
+        who.note_shout(client, raw)            # sender's account name, for the admin page
 
         # Rate-limit the RELAY only (a modified client can spam DeliverMessage; each fans out
         # 1->N). Over the bucket we drop the relay but STILL reply below — gating the reply

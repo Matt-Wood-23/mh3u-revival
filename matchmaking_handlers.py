@@ -754,6 +754,8 @@ class MatchmakeExtensionServer(matchmaking.MatchmakeExtensionServer):
         # It's a "set my notification data" op with an empty response; just accept it.
         logger.info("update_notification_data: type=%s p1=%s p2=%s p3=%r (pid=%s) -> ok",
                     type, param1, param2, param3, _pid(client))
+        if type == 101:                  # presence: hunter name, HR, room (admin page, who.py)
+            client._mh3u_status = str(param3 or "")[:512]
         return None
 
     # --- Community (gathering hall) methods --------------------------------

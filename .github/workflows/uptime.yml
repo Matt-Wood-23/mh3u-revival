@@ -1,0 +1,56 @@
+# Checks the official server(s) in servers.json from outside every 5 minutes and posts to
+# Discord when one goes down (two failed runs in a row) or comes back. The server reports
+# its own starts, stops and crashes; this catches the machine itself going away.
+# See deploy/uptime_check.py. Needs the repository secret MH3U_UPTIME_WEBHOOK (a Discord
+# webhook URL); without it the runs only log their results.
+#
+# GitHub pauses scheduled workflows in a public repository after 60 days without a
+# commit; re-enable it from the Actions tab if that happens. Runs can also start a few
+# minutes late when GitHub is busy.
+name: Official server uptime
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.repository == 'Matt-Wood-23/mh3u-revival'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            servers.json
+            deploy/uptime_check.py
+          sparse-checkout-cone-mode: false
+
+      # The newest saved state (a new entry is saved only when the state changes).
+      - name: Restore last state
+        uses: actions/cache/restore@v4
+        with:
+          path: .uptime-state
+          key: uptime-state-latest
+          restore-keys: uptime-state-
+
+      - name: Check servers
+        id: check
+        run: python3 deploy/uptime_check.py servers.json --state .uptime-state
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.MH3U_UPTIME_WEBHOOK }}
+
+      - name: Save state
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .uptime-state
+          key: uptime-state-${{ github.run_id }}

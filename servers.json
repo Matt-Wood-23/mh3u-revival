@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "news": "The official server is in testing: expect the odd restart. Feedback on Discord!",
+  "servers": [
+    {
+      "id": "us",
+      "name": "Official server (US Central)",
+      "host": "163.192.124.47",
+      "status_port": 8080
+    }
+  ]
+}

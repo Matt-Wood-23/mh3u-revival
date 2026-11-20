@@ -43,6 +43,40 @@ showing the bundle version and update state.
 
 All subprocess/network work runs on background threads; the UI never freezes.
 
+## Official servers (`servers.json`)
+
+The Join tab offers the official server(s) next to "A friend's server". The list comes
+from [`servers.json`](../../servers.json) in the repo root, which the launcher downloads
+from the `main` branch at every start (cached in `portable\mh3u_servers_cache.json` for
+offline starts). So moving the server or posting a notice is a commit to that file, not a
+launcher release.
+
+```json
+{
+  "schema": 1,
+  "news": "Server maintenance Sunday 18:00 UTC.",
+  "servers": [
+    {"id": "us", "name": "Official server (US Central)",
+     "host": "mh3u.example.org", "status_port": 8080}
+  ]
+}
+```
+
+- `host` is a DNS name or an IPv4. The launcher looks it up at every launch and writes the
+  IP into `mh3u_server.txt` (Cemu needs an IP).
+- `status_port` is the server's `MH3U_STATUS_PORT`. With it, the Join tab and Home show
+  "12 hunters online · 3 rooms", refreshed every minute. Leave it out to show no count.
+- `news` is shown on Home and Join when it isn't empty.
+- With an empty `servers` list, the Join tab says the official server isn't available yet.
+
+The player's choice is saved in `portable\mh3u_launcher.json` (protected from updates).
+A fresh install starts on the first official server. An install that already had a
+friend's IP saved stays on it.
+
+**Test connection** sends the game's NAT-check question to the chosen server on UDP 10025
+(the same packet as `tests/extkit/check_natcheck.py`), reports the address the server
+sees, and for an official server also reads its status page.
+
 ## Auto-updater
 
 - `version.txt` sits next to the exe (bundle root). The launcher reads it;
@@ -115,7 +149,10 @@ python launcher.py --selftest
 Runs headless (no GUI, no network) and asserts: account.dat mint format + PID
 range + LF-only bytes; repair-detection (`new` / `repair` / no-op, incl. the
 LF-only false-positive guard); `mh3u_server.txt` read/write; version ordering
-(`v0.1.7-beta` vs `v0.1.10-beta`, unknown/missing handling); and the update
-file-filter (protected paths never in the overwrite set). tkinter is imported
+(`v0.1.7-beta` vs `v0.1.10-beta`, unknown/missing handling); the update
+file-filter (protected paths never in the overwrite set); `servers.json` parsing (bad
+hosts and duplicate ids dropped); the NAT-check probe against a loopback responder; the
+status line; and which Join choice is preselected. The NAT-check test uses loopback
+only. tkinter is imported
 lazily inside `_run_gui()`, so the module imports and self-tests fine without a
 display.

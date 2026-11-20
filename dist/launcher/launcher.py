@@ -26,6 +26,7 @@ import re
 import sys
 import json
 import secrets
+import time
 import zipfile
 import tempfile
 import subprocess
@@ -58,6 +59,16 @@ ACTDIR_REL = os.path.join("portable", "mlc01", "usr", "save", "system", "act", "
 SRVFILE_REL = os.path.join("portable", "mh3u_server.txt")
 PLACEHOLDER = "PASTE_HOST_IP_HERE"
 
+# The official server list is a small JSON file in the repo, fetched at every start, so
+# the server can move or post a news line without a launcher release. The last good copy
+# is cached for offline starts. Format: see servers.json in the repo root.
+SERVERS_URL = (os.environ.get("MH3U_SERVERS_URL", "").strip()     # testing: another list
+               or f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/servers.json")
+SERVERS_CACHE_REL = os.path.join("portable", "mh3u_servers_cache.json")
+# The player's Join choice (official server or a friend's IP). User state.
+LAUNCHER_SETTINGS_REL = os.path.join("portable", "mh3u_launcher.json")
+STATUS_POLL_SECONDS = 60
+
 # stock default Mii — cosmetic only, identical to the .bat's MIID / MIIN
 DEFAULT_MII = ("010001100000d73e030034330100010001000100010001000100640065006600610075"
                "006c0074000000000000000100010001000100010001000106010001000100010001"
@@ -71,6 +82,7 @@ ACCT_VALID_MARKER = "IsPasswordCacheEnabled=1"
 # NB: `version.txt` is intentionally NOT here; it is rewritten LAST after success.
 PROTECTED_PREFIXES = (
     SRVFILE_REL,                                                      # host IP the user typed
+    LAUNCHER_SETTINGS_REL,                                            # official vs friend choice
     os.path.join("portable", "mlc01", "usr", "save"),                # account.dat + game saves
     os.path.join("portable", "mlc01", "usr", "title"),               # the user's game dump
 )
@@ -280,6 +292,176 @@ def parse_latest_release(api_json_bytes):
 
 
 # ---------------------------------------------------------------------------
+# Official servers (servers.json) and the Join choice
+# ---------------------------------------------------------------------------
+
+_HOST_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
+_IPV4_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+EMPTY_SERVERS = {"news": "", "servers": []}
+
+
+def parse_servers(raw):
+    """servers.json (bytes or str) -> {"news": str, "servers": [{id, name, host,
+    status_port}]}. Entries without an id or a plain host name / IPv4 are dropped (the
+    host is used to build a URL, so nothing else gets through). Not JSON -> ValueError."""
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("servers.json is not a JSON object")
+    servers, seen = [], set()
+    for s in data.get("servers") or []:
+        if not isinstance(s, dict):
+            continue
+        sid = str(s.get("id") or "").strip()
+        host = str(s.get("host") or "").strip()
+        if not sid or sid in seen or not _HOST_RE.match(host):
+            continue
+        seen.add(sid)
+        try:
+            port = int(s.get("status_port") or 0)
+        except (TypeError, ValueError):
+            port = 0
+        servers.append({
+            "id": sid,
+            "name": str(s.get("name") or host).strip(),
+            "host": host,
+            "status_port": port if 0 < port < 65536 else 0,
+        })
+    news = data.get("news")
+    return {"news": news.strip() if isinstance(news, str) else "", "servers": servers}
+
+
+def load_servers(root, fetch=True, timeout=8):
+    """The official server list: fetched live (and cached), else the cached copy, else
+    none. Returns (data, source) with source "live", "cache" or "none"."""
+    cache = Path(root) / SERVERS_CACHE_REL
+    if fetch:
+        try:
+            req = urllib.request.Request(SERVERS_URL, headers={
+                "User-Agent": "MH3U-Revival-Launcher", "Cache-Control": "no-cache"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                raw = r.read(256 * 1024)
+            data = parse_servers(raw)
+            try:
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                cache.write_bytes(raw)
+            except OSError:
+                pass
+            return data, "live"
+        except Exception:
+            pass
+    try:
+        return parse_servers(cache.read_bytes()), "cache"
+    except Exception:
+        return dict(EMPTY_SERVERS), "none"
+
+
+def resolve_host(host):
+    """A server's host name -> IPv4 string (an IPv4 is returned as is). Cemu's
+    mh3u_server.txt takes an IP, so the launcher looks the name up at every launch and a
+    moved server needs no change on the player's side. Raises OSError on failure."""
+    import socket
+    host = host.strip()
+    if _IPV4_RE.match(host):
+        return host
+    infos = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_DGRAM)
+    if not infos:
+        raise OSError(f"no IPv4 address for {host}")
+    return infos[0][4][0]
+
+
+def fetch_status(host, port, timeout=4):
+    """GET the server's status page (status_http.py) -> dict."""
+    req = urllib.request.Request(f"http://{host}:{port}/status",
+                                 headers={"User-Agent": "MH3U-Revival-Launcher"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        data = json.loads(r.read(64 * 1024))
+    if not isinstance(data, dict):
+        raise ValueError("status is not a JSON object")
+    return data
+
+
+NATCHECK_PORT = 10025
+
+
+def natcheck_probe(ip, port=NATCHECK_PORT, timeout=2.0, tries=3):
+    """Ask the server's NAT-check responder (natcheck.py) "what's my address?" over UDP,
+    the first thing the game does online. Returns (True, "a.b.c.d:port" as the server
+    sees us) or (False, reason). Same packet as tests/extkit/check_natcheck.py."""
+    import socket
+    import struct
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(timeout)
+    reason = "no answer"
+    try:
+        for _ in range(tries):
+            try:
+                s.sendto(struct.pack(">IIII", 0x65, 0, 0, 0), (ip, port))
+                data, _addr = s.recvfrom(64)
+            except socket.timeout:
+                continue
+            except ConnectionResetError:
+                # Windows reports an ICMP "port unreachable" this way: the machine is
+                # there, but nothing listens on that port.
+                reason = "port closed (the server isn't running)"
+                continue
+            except OSError as e:
+                return False, str(e)
+            if len(data) >= 16:
+                _t, seen_port, seen_ip, _srv = struct.unpack(">IIII", data[:16])
+                return True, f"{socket.inet_ntoa(struct.pack('>I', seen_ip))}:{seen_port}"
+            reason = f"unexpected {len(data)}-byte reply"
+    finally:
+        s.close()
+    return False, reason
+
+
+def format_status(snap):
+    """Status dict -> one short line, e.g. "12 hunters online · 3 rooms"."""
+    try:
+        p = int(snap.get("players", 0))
+        r = int(snap.get("rooms", 0))
+    except (TypeError, ValueError):
+        return "status unreadable"
+    hunters = "1 hunter" if p == 1 else f"{p} hunters"
+    rooms = "1 room" if r == 1 else f"{r} rooms"
+    return f"{hunters} online · {rooms}"
+
+
+def read_launcher_settings(path):
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_launcher_settings(path, settings):
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "w", newline="\n", encoding="utf-8") as f:
+        json.dump(settings, f, indent=2)
+        f.write("\n")
+
+
+def initial_join_choice(settings, saved_ip, servers):
+    """What the Join tab preselects: "official:<id>" or "custom".
+
+    An explicit earlier choice wins. An install that already has a friend's IP saved
+    from before the official server existed stays on it (we don't move people silently).
+    Everyone else starts on the first official server, when there is one."""
+    ids = [s["id"] for s in servers]
+    mode = settings.get("join_mode")
+    if mode == "official":
+        sid = settings.get("server_id")
+        if sid in ids:
+            return f"official:{sid}"
+        return f"official:{ids[0]}" if ids else "custom"
+    if mode == "custom" or saved_ip:
+        return "custom"
+    return f"official:{ids[0]}" if ids else "custom"
+
+
+# ---------------------------------------------------------------------------
 # IP detection (pure Python where possible; subprocess for tailscale)
 # ---------------------------------------------------------------------------
 
@@ -398,7 +580,7 @@ def bundle_root():
 # JOIN flow (ported from PLAY MH3U ONLINE.bat) — returns log lines
 # ===========================================================================
 
-def run_join_flow(root, host_ip, launch=True, log=print):
+def run_join_flow(root, host_ip, launch=True, log=print, host_label=None):
     """Execute the full join flow against bundle `root`.
 
       1. game-dump presence check (guidance if missing)
@@ -444,7 +626,7 @@ def run_join_flow(root, host_ip, launch=True, log=print):
     ip = (host_ip or "").strip()
     if ip and ip != PLACEHOLDER:
         write_host_ip(root / SRVFILE_REL, ip)
-        log(f"[MH3U Online] Saved host = {ip}")
+        log(f"[MH3U Online] Saved host = {host_label or ip}")
     else:
         log("[MH3U Online] WARNING: no host IP set — enter the host's IP and Save first.")
 
@@ -715,6 +897,97 @@ def _selftest():
     check(assets.get(BUNDLE_ZIP) == "https://x/bundle.zip", "parsed bundle asset URL")
     check(HOST_ZIP in assets, "parsed host asset present")
 
+    print("== servers.json parse ==")
+    raw = json.dumps({
+        "schema": 1,
+        "news": "  Maintenance Sunday 18:00 UTC  ",
+        "servers": [
+            {"id": "us", "name": "Official (US)", "host": "mh3u.example.org", "status_port": 8080},
+            {"id": "ip", "host": "203.0.113.7"},
+            {"id": "us", "host": "dup.example.org"},                 # duplicate id
+            {"id": "bad", "host": "evil.org/x?y"},                   # not a plain host
+            {"id": "bad2", "host": "a b"},
+            {"host": "no-id.example.org"},
+            {"id": "port", "host": "p.example.org", "status_port": "99999"},
+            "not a dict",
+        ],
+    })
+    d = parse_servers(raw)
+    ids = [x["id"] for x in d["servers"]]
+    check(ids == ["us", "ip", "port"], f"valid entries kept, bad/dup dropped ({ids})")
+    check(d["news"] == "Maintenance Sunday 18:00 UTC", "news trimmed")
+    check(d["servers"][1]["name"] == "203.0.113.7", "name defaults to host")
+    check(d["servers"][0]["status_port"] == 8080, "status_port kept")
+    check(d["servers"][2]["status_port"] == 0, "out-of-range status_port -> 0")
+    check(parse_servers(b'{"servers": null}') == EMPTY_SERVERS, "null server list -> empty")
+    for junk in (b"[1,2]", b"not json"):
+        try:
+            parse_servers(junk)
+            check(False, f"rejects {junk!r}")
+        except ValueError:
+            check(True, f"rejects {junk!r}")
+    check(resolve_host(" 203.0.113.7 ") == "203.0.113.7", "IPv4 host needs no lookup")
+
+    print("== NAT-check probe (loopback) ==")
+    import socket
+    import struct
+    resp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    resp.bind(("127.0.0.1", 0))
+    rport = resp.getsockname()[1]
+
+    def answer_once():
+        data, addr = resp.recvfrom(64)
+        ip_u32 = struct.unpack(">I", socket.inet_aton(addr[0]))[0]
+        resp.sendto(struct.pack(">IIII", struct.unpack(">I", data[:4])[0], addr[1], ip_u32, 0),
+                    addr)
+    t = threading.Thread(target=answer_once, daemon=True)
+    t.start()
+    got, info = natcheck_probe("127.0.0.1", port=rport, timeout=2)
+    check(got and info.startswith("127.0.0.1:"), f"probe gets our address back ({info})")
+    resp.close()
+    got, info = natcheck_probe("127.0.0.1", port=rport, timeout=0.3, tries=1)
+    check(not got, f"no responder -> failure ({info})")
+
+    print("== status line ==")
+    check(format_status({"players": 12, "rooms": 3}) == "12 hunters online · 3 rooms",
+          "plural status line")
+    check(format_status({"players": 1, "rooms": 1}) == "1 hunter online · 1 room",
+          "singular status line")
+    check(format_status({"players": "x"}) == "status unreadable", "junk status handled")
+
+    print("== Join choice ==")
+    srv = [{"id": "us"}, {"id": "eu"}]
+    check(initial_join_choice({}, "", srv) == "official:us", "fresh install -> official")
+    check(initial_join_choice({}, "", []) == "custom", "no official server -> custom")
+    check(initial_join_choice({}, "26.1.2.3", srv) == "custom",
+          "old install with a friend's IP stays on it")
+    check(initial_join_choice({"join_mode": "official", "server_id": "eu"}, "x", srv)
+          == "official:eu", "remembered official server")
+    check(initial_join_choice({"join_mode": "official", "server_id": "gone"}, "", srv)
+          == "official:us", "removed server -> first official")
+    check(initial_join_choice({"join_mode": "official"}, "", []) == "custom",
+          "official chosen but list empty -> custom")
+    check(initial_join_choice({"join_mode": "custom"}, "", srv) == "custom",
+          "remembered friend choice")
+    check(is_protected_path("portable/mh3u_launcher.json"), "launcher settings are protected")
+    check(not is_protected_path("portable/mh3u_servers_cache.json"), "server cache is not")
+    tmp = Path(tempfile.mkdtemp(prefix="mh3u_selftest_"))
+    try:
+        sp = tmp / "portable" / "mh3u_launcher.json"
+        check(read_launcher_settings(sp) == {}, "missing settings -> {}")
+        write_launcher_settings(sp, {"join_mode": "official", "server_id": "us"})
+        check(read_launcher_settings(sp) == {"join_mode": "official", "server_id": "us"},
+              "settings round-trip")
+        sp.write_text("[]", encoding="utf-8")
+        check(read_launcher_settings(sp) == {}, "non-object settings -> {}")
+        cache = tmp / SERVERS_CACHE_REL
+        check(load_servers(tmp, fetch=False) == (EMPTY_SERVERS, "none"), "no cache -> none")
+        cache.write_text(raw, encoding="utf-8")
+        data, source = load_servers(tmp, fetch=False)
+        check(source == "cache" and len(data["servers"]) == 3, "offline start uses the cache")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
     print()
     print("SELFTEST", "PASSED" if ok else "FAILED")
     return 0 if ok else 1
@@ -772,22 +1045,67 @@ def _run_gui(smoke=False):
     btn_host = ttk.Button(home, text="HOST A SERVER", width=28,
                           command=lambda: nb.select(host))
     btn_host.pack(pady=6, ipady=8)
-    ttk.Label(home, text="JOIN = play on a friend's server.\n"
+    ttk.Label(home, text="JOIN = play on the official server or a friend's.\n"
                          "HOST = run the server for your friends.",
-              foreground="#555", justify="center").pack(pady=20)
+              foreground="#555", justify="center").pack(pady=(20, 8))
+    home_status_var = tk.StringVar(value="")
+    ttk.Label(home, textvariable=home_status_var, foreground="#555",
+              justify="center").pack()
+    NEWS_FG = "#8a5a00"
+    home_news_var = tk.StringVar(value="")
+    ttk.Label(home, textvariable=home_news_var, foreground=NEWS_FG, wraplength=520,
+              justify="center").pack(pady=(8, 0))
 
     # ---------------- JOIN ----------------
     join = ttk.Frame(nb, padding=16)
     nb.add(join, text="Join")
-    ttk.Label(join, text="Host's IP address", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-    ttk.Label(join, text="Ask the host — their Tailscale (100.x), Radmin (26.x), "
-                         "LAN or public IP.", foreground="#555").pack(anchor="w", pady=(0, 6))
-    ip_var = tk.StringVar(value=read_host_ip(os.path.join(ROOT_DIR, SRVFILE_REL)))
-    ip_entry = ttk.Entry(join, textvariable=ip_var, width=40)
-    ip_entry.pack(anchor="w")
-    join_play = ttk.Button(join, text="Save + Play")
-    join_play.pack(anchor="w", pady=10)
-    join_log = scrolledtext.ScrolledText(join, height=12, wrap="word", state="disabled")
+    settings_path = os.path.join(ROOT_DIR, LAUNCHER_SETTINGS_REL)
+    jsettings = read_launcher_settings(settings_path)
+    saved_ip = read_host_ip(os.path.join(ROOT_DIR, SRVFILE_REL))
+    # mh3u_server.txt holds the official server's IP after an official launch, so the
+    # friend's-IP box only falls back to it for installs that predate the choice.
+    if jsettings.get("join_mode") == "official":
+        start_custom_ip = jsettings.get("custom_ip", "")
+    else:
+        start_custom_ip = jsettings.get("custom_ip") or saved_ip
+
+    ttk.Label(join, text="Where do you want to play?",
+              font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0, 4))
+    choice_var = tk.StringVar(value="custom")
+    jstate = {"servers": [], "touched": False, "status": {}}
+
+    def touched(*_):
+        jstate["touched"] = True
+
+    official_frame = ttk.Frame(join)            # filled in once servers.json is loaded
+    official_frame.pack(fill="x", anchor="w")
+    ttk.Label(official_frame, text="Official server: checking…",
+              foreground="#555").pack(anchor="w")
+
+    custom_row = ttk.Frame(join)
+    custom_row.pack(fill="x", anchor="w", pady=(2, 0))
+    ttk.Radiobutton(custom_row, text="A friend's server, IP:", variable=choice_var,
+                    value="custom", command=touched).pack(side="left")
+    ip_var = tk.StringVar(value=start_custom_ip)
+    ip_entry = ttk.Entry(custom_row, textvariable=ip_var, width=24)
+    ip_entry.pack(side="left", padx=6)
+
+    def ip_focus(_e):
+        choice_var.set("custom")
+        touched()
+    ip_entry.bind("<FocusIn>", ip_focus)
+    ttk.Label(join, text="Ask the host for their Tailscale (100.x), Radmin (26.x), "
+                         "LAN or public IP.", foreground="#555").pack(anchor="w", padx=(22, 0))
+    join_news_var = tk.StringVar(value="")
+    ttk.Label(join, textvariable=join_news_var, foreground=NEWS_FG, wraplength=560,
+              justify="left").pack(anchor="w", pady=(6, 0))
+    join_btns = ttk.Frame(join)
+    join_btns.pack(anchor="w", pady=10)
+    join_play = ttk.Button(join_btns, text="Save + Play")
+    join_play.pack(side="left")
+    join_test = ttk.Button(join_btns, text="Test connection")
+    join_test.pack(side="left", padx=6)
+    join_log = scrolledtext.ScrolledText(join, height=10, wrap="word", state="disabled")
     join_log.pack(fill="both", expand=True)
 
     def jlog(line):
@@ -796,18 +1114,155 @@ def _run_gui(smoke=False):
         join_log.see("end")
         join_log.configure(state="disabled")
 
+    def chosen_server(choice, log):
+        """The picked official server and its IP, or (None, None) after logging why."""
+        sid = choice.split(":", 1)[1]
+        srv = next((s for s in jstate["servers"] if s["id"] == sid), None)
+        if srv is None:
+            log("[MH3U Online] That server isn't in the list anymore; pick one again.")
+            return None, None
+        try:
+            ip = resolve_host(srv["host"])
+        except OSError as e:
+            log(f"[MH3U Online] ERROR: couldn't look up {srv['name']} ({e}). "
+                "Check your internet connection.")
+            return None, None
+        return srv, ip
+
+    def do_test():
+        choice = choice_var.get()
+        custom_ip = ip_var.get().strip()
+        join_test.configure(state="disabled")
+
+        def worker():
+            log = lambda s: app.after(0, jlog, s)  # noqa: E731
+            try:
+                if choice.startswith("official:"):
+                    srv, ip = chosen_server(choice, log)
+                    if srv is None:
+                        return
+                    name = srv["name"]
+                else:
+                    srv, ip, name = None, custom_ip, "your friend's server"
+                    if not ip or ip == PLACEHOLDER:
+                        log("[Test] Type your friend's IP first.")
+                        return
+                log(f"[Test] Asking {name} ({ip}) on UDP {NATCHECK_PORT} ...")
+                ok, info = natcheck_probe(ip)
+                if ok:
+                    log(f"[Test] OK: the server answered and sees you at {info}. "
+                        "Your connection to it works.")
+                elif srv is not None:
+                    log(f"[Test] FAILED ({info}). Either the server is down, or something "
+                        "on your side blocks UDP: a firewall, a VPN, or a school/work "
+                        "network.")
+                else:
+                    log(f"[Test] FAILED ({info}). Check that your friend's server is "
+                        f"running, that their router forwards UDP 1223, 1224 and "
+                        f"{NATCHECK_PORT} to their PC, and their firewall allows them.")
+                if srv is not None and srv["status_port"]:
+                    try:
+                        snap = fetch_status(srv["host"], srv["status_port"])
+                        log(f"[Test] Server status: {format_status(snap)}")
+                    except Exception as e:
+                        log(f"[Test] Status page didn't answer ({e}).")
+            finally:
+                app.after(0, lambda: join_test.configure(state="normal"))
+        threading.Thread(target=worker, daemon=True).start()
+
+    join_test.configure(command=do_test)
+
     def do_join():
-        ip = ip_var.get().strip()
+        choice = choice_var.get()
+        custom_ip = ip_var.get().strip()
         join_play.configure(state="disabled")
 
         def worker():
+            log = lambda s: app.after(0, jlog, s)  # noqa: E731
             try:
-                run_join_flow(ROOT_DIR, ip, launch=True, log=lambda s: app.after(0, jlog, s))
+                if choice.startswith("official:"):
+                    srv, ip = chosen_server(choice, log)
+                    if srv is None:
+                        return
+                    label = srv["name"]      # the official server's address isn't shown
+                    new = {"join_mode": "official", "server_id": srv["id"]}
+                else:
+                    ip = label = custom_ip
+                    new = {"join_mode": "custom"}
+                settings = dict(read_launcher_settings(settings_path))
+                settings.update(new, custom_ip=custom_ip)
+                try:
+                    write_launcher_settings(settings_path, settings)
+                except OSError:
+                    pass
+                run_join_flow(ROOT_DIR, ip, launch=True, log=log, host_label=label)
             finally:
                 app.after(0, lambda: join_play.configure(state="normal"))
         threading.Thread(target=worker, daemon=True).start()
 
     join_play.configure(command=do_join)
+
+    # --- official server list + live player counts --------------------------
+    OK_FG, BAD_FG, IDLE_FG = "#1a8f3a", "#c0392b", "#999"
+
+    def set_status(sid, text, color):
+        w = jstate["status"].get(sid)
+        if w:
+            w[0].configure(foreground=color)
+            w[1].set(text)
+        servers = jstate["servers"]
+        if servers and servers[0]["id"] == sid:
+            home_status_var.set(f"{servers[0]['name']}: {text}")
+
+    def show_servers(data, source):
+        servers = data["servers"]
+        jstate["servers"] = servers
+        jstate["status"] = {}
+        for w in official_frame.winfo_children():
+            w.destroy()
+        if not servers:
+            msg = ("Official server: not available yet." if source != "none" else
+                   "Official server: couldn't load the server list (offline?).")
+            ttk.Label(official_frame, text=msg, foreground="#555").pack(anchor="w")
+        for s in servers:
+            row = ttk.Frame(official_frame)
+            row.pack(fill="x", anchor="w")
+            ttk.Radiobutton(row, text=s["name"], variable=choice_var,
+                            value="official:" + s["id"], command=touched).pack(side="left")
+            dot = ttk.Label(row, text="●", foreground=IDLE_FG)
+            text = tk.StringVar(value="checking…" if s["status_port"] else "")
+            if s["status_port"]:
+                dot.pack(side="left", padx=(8, 2))
+                ttk.Label(row, textvariable=text, foreground="#555").pack(side="left")
+            jstate["status"][s["id"]] = (dot, text)
+        if not jstate["touched"]:
+            choice_var.set(initial_join_choice(jsettings, saved_ip, servers))
+        join_news_var.set(data["news"])
+        home_news_var.set(data["news"])
+        if servers and not servers[0]["status_port"]:
+            home_status_var.set(f"Official server: {servers[0]['name']}")
+
+    def servers_worker():
+        data, source = load_servers(ROOT_DIR)
+        try:
+            app.after(0, show_servers, data, source)
+        except Exception:
+            return                              # window already closed
+        while True:
+            for s in data["servers"]:
+                if not s["status_port"]:
+                    continue
+                try:
+                    text, color = format_status(fetch_status(s["host"], s["status_port"])), OK_FG
+                except Exception:
+                    text, color = "not responding", BAD_FG
+                try:
+                    app.after(0, set_status, s["id"], text, color)
+                except Exception:
+                    return                      # window already closed
+            time.sleep(STATUS_POLL_SECONDS)
+
+    threading.Thread(target=servers_worker, daemon=True).start()
 
     # ---------------- HOST ----------------
     host = ttk.Frame(nb, padding=16)
@@ -1059,8 +1514,10 @@ def _run_gui(smoke=False):
                         update_var.set("up to date"),
                         win.destroy()))
             except Exception as e:
+                # Python unbinds `e` when this block ends, before the callback runs.
+                err = str(e)
                 app.after(0, lambda: (messagebox.showerror(
-                    APP_TITLE, f"Update failed: {e}"), win.destroy(),
+                    APP_TITLE, f"Update failed: {err}"), win.destroy(),
                     update_btn.configure(state="normal")))
         threading.Thread(target=worker, daemon=True).start()
 

@@ -1,4 +1,17 @@
 {
   "schema": 1,
-  "quests": []
+  "quests": [
+    {
+      "file": "q_20150.quest",
+      "sha256": "7b47aa678832f3fdf02ceb126b47738879a72bef28312f2d20087b75207b479e"
+    },
+    {
+      "file": "q_20250.quest",
+      "sha256": "775542bf41acccb74bbafe09fe08029e9d3cfbc6f4f36f16fd7c12c2abd2ccfe"
+    },
+    {
+      "file": "q_20350.quest",
+      "sha256": "4bf2f388c08635c0fac56e8657164ed1fa409cf0a289cace0abec5c038d3a690"
+    }
+  ]
 }

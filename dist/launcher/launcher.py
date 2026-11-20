@@ -441,13 +441,23 @@ def format_status(snap):
 #
 # The game keeps event quests in four "packs" in the save folder (quest1..quest4, 20 slots
 # each; quest4 is where Challenge Quests are read from). The launcher puts the official
-# event quests (numbers 20350-20399, clear of Capcom's 20102-20324) into free slots of
-# quest3, then quest2, then quest1, and remembers a fingerprint of every slot it wrote.
-# It only ever changes or clears a slot that still matches that fingerprint, so quests a
-# player added themselves are never touched. Each pack is backed up once
-# (questN.revival_backup) before the launcher first changes it.
+# event quests into free slots of quest3, then quest2, then quest1, and remembers a
+# fingerprint of every slot it wrote. It only ever changes or clears a slot that still
+# matches that fingerprint, so quests a player added themselves are never touched. Each
+# pack is backed up once (questN.revival_backup) before the launcher first changes it.
+#
+# The quest number sets the rank the game lists it under: 201xx low, 202xx high, 203xx G
+# rank. The official ones use the top half of each block, clear of Capcom's own event
+# quests (20102-20104, 20201-20210, 20302-20324).
 # ---------------------------------------------------------------------------
-EVENT_NO_MIN, EVENT_NO_MAX = 20350, 20399
+EVENT_NO_RANGES = ((20150, 20199), (20250, 20299), (20350, 20399))   # low, high, G rank
+
+
+def event_number_ok(no):
+    return any(lo <= no <= hi for lo, hi in EVENT_NO_RANGES)
+
+
+EVENT_NO_TEXT = ", ".join(f"{lo}-{hi}" for lo, hi in EVENT_NO_RANGES)
 EVENT_PACKS = ("quest3", "quest2", "quest1")
 EVENT_TITLES = ("10118300", "10117200")          # US, EU (the JP game's quests differ)
 PACK_HEADER, PACK_SLOT, PACK_DATA, PACK_NAME, PACK_SLOTS = 0x28, 0x2010, 0x2000, 16, 20
@@ -491,8 +501,8 @@ def check_event_record(name, rec, sha256):
     no = quest_record_no(rec)
     if no is None:
         raise ValueError(f"{name}: not a quest file")
-    if not EVENT_NO_MIN <= no <= EVENT_NO_MAX or name != f"q_{no:05d}.quest":
-        raise ValueError(f"{name}: quest number {no} is outside {EVENT_NO_MIN}-{EVENT_NO_MAX}")
+    if not event_number_ok(no) or name != f"q_{no:05d}.quest":
+        raise ValueError(f"{name}: quest number {no} is outside {EVENT_NO_TEXT}")
     body = rec.rstrip(b"\0")
     if len(body) > PACK_DATA:
         raise ValueError(f"{name}: too big for a quest slot")
@@ -1267,6 +1277,8 @@ def _selftest():
             check(False, f"rejects {why}")
         except ValueError:
             check(True, f"rejects {why}")
+    check([event_number_ok(n) for n in (20150, 20199, 20250, 20399, 20149, 20200, 20210, 20324)]
+          == [True] * 4 + [False] * 4, "low/high/G rank blocks, clear of Capcom's numbers")
     tmp = Path(tempfile.mkdtemp(prefix="mh3u_selftest_"))
     try:
         save = tmp / "portable/mlc01/usr/save/00050000/10118300/user/80000001"

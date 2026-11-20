@@ -4,9 +4,11 @@ The launcher (Join tab, "Add the official event quests") downloads events.json a
 quest files it lists, checks each against its sha256, and puts them into the player's
 event quest packs. To publish an event quest:
 
-  1. Make it in MH3U Quest Studio (DLC / Event tab: New quest...) with a number from
-     20350 to 20399 (Capcom's own event quests use 20102-20324), then export it as a
-     loose .quest file named q_<number>.quest.
+  1. Make it in MH3U Quest Studio (DLC / Event tab: New quest...) and export it as a
+     loose .quest file named q_<number>.quest. The number sets the rank the game lists
+     it under; use the official block for that rank (Capcom's own event quests are
+     20102-20104, 20201-20210 and 20302-20324):
+         20150-20199  low rank        20250-20299  high rank        20350-20399  G rank
   2. Copy it into this folder and run:  python events/update_list.py
   3. Commit events.json and the .quest file. Players get it the next time they press
      Save + Play. Delete the file (and rerun this) to end the event: the launcher then
@@ -22,7 +24,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-NO_MIN, NO_MAX = 20350, 20399
+RANGES = ((20150, 20199), (20250, 20299), (20350, 20399))   # low, high, G rank
 SLOT_DATA = 0x2000
 
 
@@ -43,8 +45,9 @@ def main():
         m = re.fullmatch(r"q_(\d{5})\.quest", path.name)
         if no is None:
             bad.append(f"{path.name}: not a quest file")
-        elif not NO_MIN <= no <= NO_MAX:
-            bad.append(f"{path.name}: quest number {no} is outside {NO_MIN}-{NO_MAX}")
+        elif not any(lo <= no <= hi for lo, hi in RANGES):
+            blocks = ", ".join(f"{lo}-{hi}" for lo, hi in RANGES)
+            bad.append(f"{path.name}: quest number {no} is outside {blocks}")
         elif not m or int(m.group(1)) != no:
             bad.append(f"{path.name}: rename it to q_{no:05d}.quest")
         elif len(rec.rstrip(b"\0")) > SLOT_DATA:

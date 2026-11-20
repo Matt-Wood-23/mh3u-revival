@@ -20,6 +20,7 @@ MH3U). You bring your own legal game dump; nothing from Nintendo is distributed.
 - **Playing on a real Wii U?** → [docs/WIIU_CONSOLE.md](docs/WIIU_CONSOLE.md)
 - **Something not working?** → [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 - **Want to edit quests or make your own?** → [MH3U Quest Studio](https://github.com/Matt-Wood-23/mh3u-quest-studio)
+- **Made an event quest you'd like everyone to have?** → [events/README.md](events/README.md)
 
 **On Cemu (Windows):** download `MH3U_Online_Bundle.zip` from the
 [latest release](https://github.com/Matt-Wood-23/mh3u-revival/releases/latest), add your own

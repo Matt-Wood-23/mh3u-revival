@@ -1,0 +1,55 @@
+name: Event quest submission
+description: Send in an event quest you made, to be added to the official list.
+title: "Event quest: "
+labels: ["event quest"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for making a quest! How to make one and pick its number:
+        [events/README.md](https://github.com/Matt-Wood-23/mh3u-revival/blob/main/events/README.md).
+  - type: input
+    id: name
+    attributes:
+      label: Quest name
+    validations:
+      required: true
+  - type: input
+    id: number
+    attributes:
+      label: Quest number
+      description: "Low rank 20150–20199, high rank 20250–20299, G rank 20350–20399."
+      placeholder: "20151"
+    validations:
+      required: true
+  - type: dropdown
+    id: game
+    attributes:
+      label: Your game
+      options:
+        - US
+        - EU
+    validations:
+      required: true
+  - type: textarea
+    id: pack
+    attributes:
+      label: Quest pack
+      description: |
+        Zip the pack file your quest is in (quest1, quest2 or quest3) and drag the zip in here.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: About the quest
+      description: Anything we should know, such as what makes it fun or what you changed from the quest you copied.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send it
+      options:
+        - label: I played it all the way through, and Quest Studio shows no warnings for it.
+          required: true
+        - label: I agree that it can be shared in this project under its license (AGPL-3.0), and it isn't copied from someone else's work without asking.
+          required: true

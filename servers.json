@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "news": "The official server is in testing: expect the odd restart. Feedback on Discord!",
+  "news": "New: official event quests with guaranteed crowns! Tick \"Add the official event quests\" on the Join tab, then Save + Play. No tick box? Download MH3U_Online.exe again from the v0.3.0-beta release.",
   "servers": [
     {
       "id": "us",

@@ -25,7 +25,9 @@ import os
 import re
 import sys
 import json
+import hashlib
 import secrets
+import shutil
 import time
 import zipfile
 import tempfile
@@ -67,6 +69,12 @@ SERVERS_URL = (os.environ.get("MH3U_SERVERS_URL", "").strip()     # testing: ano
 SERVERS_CACHE_REL = os.path.join("portable", "mh3u_servers_cache.json")
 # The player's Join choice (official server or a friend's IP). User state.
 LAUNCHER_SETTINGS_REL = os.path.join("portable", "mh3u_launcher.json")
+# Official event quests: a list in the repo (events/events.json + the .quest files next to
+# it) that the launcher copies into the player's event quest packs before starting Cemu.
+EVENTS_BASE = (os.environ.get("MH3U_EVENTS_BASE", "").strip().rstrip("/")   # testing
+               or f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/events")
+EVENTS_CACHE_REL = os.path.join("portable", "mh3u_events_cache")
+EVENTS_STATE_REL = os.path.join("portable", "mh3u_events_state.json")
 STATUS_POLL_SECONDS = 60
 
 # stock default Mii — cosmetic only, identical to the .bat's MIID / MIIN
@@ -83,6 +91,7 @@ ACCT_VALID_MARKER = "IsPasswordCacheEnabled=1"
 PROTECTED_PREFIXES = (
     SRVFILE_REL,                                                      # host IP the user typed
     LAUNCHER_SETTINGS_REL,                                            # official vs friend choice
+    EVENTS_STATE_REL,                                                 # which quest slots are ours
     os.path.join("portable", "mlc01", "usr", "save"),                # account.dat + game saves
     os.path.join("portable", "mlc01", "usr", "title"),               # the user's game dump
 )
@@ -425,6 +434,242 @@ def format_status(snap):
     hunters = "1 hunter" if p == 1 else f"{p} hunters"
     rooms = "1 room" if r == 1 else f"{r} rooms"
     return f"{hunters} online · {rooms}"
+
+
+# ---------------------------------------------------------------------------
+# Official event quests
+#
+# The game keeps event quests in four "packs" in the save folder (quest1..quest4, 20 slots
+# each; quest4 is where Challenge Quests are read from). The launcher puts the official
+# event quests (numbers 20350-20399, clear of Capcom's 20102-20324) into free slots of
+# quest3, then quest2, then quest1, and remembers a fingerprint of every slot it wrote.
+# It only ever changes or clears a slot that still matches that fingerprint, so quests a
+# player added themselves are never touched. Each pack is backed up once
+# (questN.revival_backup) before the launcher first changes it.
+# ---------------------------------------------------------------------------
+EVENT_NO_MIN, EVENT_NO_MAX = 20350, 20399
+EVENT_PACKS = ("quest3", "quest2", "quest1")
+EVENT_TITLES = ("10118300", "10117200")          # US, EU (the JP game's quests differ)
+PACK_HEADER, PACK_SLOT, PACK_DATA, PACK_NAME, PACK_SLOTS = 0x28, 0x2010, 0x2000, 16, 20
+
+
+def quest_record_no(rec):
+    """Quest number of a QTDS quest record, or None if it isn't one we can read."""
+    try:
+        if rec[:4] != b"QTDS" or int.from_bytes(rec[4:8], "little") != 5:
+            return None
+        pos = 8
+        for _ in range(5):                       # the quest name, in 5 languages
+            pos += 4 + int.from_bytes(rec[pos:pos + 4], "little")
+        if pos + 2 > len(rec):
+            return None
+        return int.from_bytes(rec[pos:pos + 2], "little")
+    except (TypeError, IndexError):
+        return None
+
+
+def parse_events(raw):
+    """events.json -> [{"file", "sha256"}]. Entries that aren't a plain q_NNNNN.quest
+    file name with a sha256 are dropped."""
+    data = json.loads(raw)
+    out = []
+    for q in data.get("quests", []) if isinstance(data, dict) else []:
+        if not isinstance(q, dict):
+            continue
+        f, h = q.get("file"), q.get("sha256")
+        if (isinstance(f, str) and re.fullmatch(r"q_\d{5}\.quest", f)
+                and isinstance(h, str) and re.fullmatch(r"[0-9a-f]{64}", h.lower())):
+            out.append({"file": f, "sha256": h.lower()})
+    return out
+
+
+def check_event_record(name, rec, sha256):
+    """The record if it's a valid official event quest matching its listed hash, else
+    raise ValueError saying why."""
+    if hashlib.sha256(rec).hexdigest() != sha256:
+        raise ValueError(f"{name}: checksum doesn't match the list")
+    no = quest_record_no(rec)
+    if no is None:
+        raise ValueError(f"{name}: not a quest file")
+    if not EVENT_NO_MIN <= no <= EVENT_NO_MAX or name != f"q_{no:05d}.quest":
+        raise ValueError(f"{name}: quest number {no} is outside {EVENT_NO_MIN}-{EVENT_NO_MAX}")
+    body = rec.rstrip(b"\0")
+    if len(body) > PACK_DATA:
+        raise ValueError(f"{name}: too big for a quest slot")
+    return body
+
+
+def load_event_quests(root, fetch=True, timeout=8, log=print):
+    """{quest number: record} for the official event quests: downloaded (and cached), or
+    the cached copies when offline. None if there is no list at all yet."""
+    cache = Path(root) / EVENTS_CACHE_REL
+    listing = None
+    if fetch:
+        try:
+            req = urllib.request.Request(EVENTS_BASE + "/events.json", headers={
+                "User-Agent": "MH3U-Revival-Launcher", "Cache-Control": "no-cache"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                raw = r.read(256 * 1024)
+            listing = parse_events(raw)
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / "events.json").write_bytes(raw)
+        except Exception as e:
+            log(f"[Events] Couldn't get the event quest list ({e}); using the saved copy.")
+    if listing is None:
+        try:
+            listing = parse_events((cache / "events.json").read_bytes())
+        except (OSError, ValueError):
+            return None
+    quests = {}
+    for q in listing:
+        path = cache / q["file"]
+        rec = path.read_bytes() if path.exists() else b""
+        if hashlib.sha256(rec).hexdigest() != q["sha256"] and fetch:
+            try:
+                with urllib.request.urlopen(EVENTS_BASE + "/" + q["file"], timeout=timeout) as r:
+                    rec = r.read(PACK_DATA + 1)
+            except Exception as e:
+                log(f"[Events] Couldn't download {q['file']} ({e}).")
+                continue
+        try:
+            body = check_event_record(q["file"], rec, q["sha256"])
+        except ValueError as e:
+            log(f"[Events] Skipped {e}.")
+            continue
+        path.write_bytes(rec)
+        quests[quest_record_no(body)] = body
+    return quests
+
+
+def event_save_dirs(root):
+    """Save folders (US/EU) whose event quest packs exist; the game creates them."""
+    base = Path(root) / "portable" / "mlc01" / "usr" / "save" / "00050000"
+    out = []
+    for title in EVENT_TITLES:
+        users = base / title / "user"
+        if users.is_dir():
+            out += [d for d in sorted(users.iterdir())
+                    if d.is_dir() and all((d / p).is_file() for p in EVENT_PACKS)]
+    return out
+
+
+def _slot(pack, i):
+    o = PACK_HEADER + i * PACK_SLOT
+    return pack[o:o + PACK_SLOT]
+
+
+def _slot_record(rec, no):
+    name = f"q_{no:05d}.quest".encode("ascii")
+    return rec + bytes(PACK_DATA - len(rec)) + name + bytes(PACK_NAME - len(name))
+
+
+def sync_event_packs(save_dir, quests, owned):
+    """Bring one save folder's packs in line with `quests` ({number: record}).
+    `owned` ({"quest3/0": {"no", "sha256"}}) says which slots the launcher wrote; it's
+    updated in place. Returns (added, updated, removed, notes)."""
+    save_dir = Path(save_dir)
+    packs = {}
+    for name in EVENT_PACKS:
+        data = bytearray((save_dir / name).read_bytes())
+        if len(data) < PACK_HEADER + PACK_SLOTS * PACK_SLOT:
+            return 0, 0, 0, [f"{name} looks damaged; left alone"]
+        packs[name] = data
+    notes = []
+    added = updated = removed = 0
+    # Forget slots that no longer hold exactly what we wrote (the player changed them).
+    for key, info in list(owned.items()):
+        name, _, idx = key.partition("/")
+        if (name not in packs or not idx.isdigit() or int(idx) >= PACK_SLOTS
+                or hashlib.sha256(_slot(packs[name], int(idx))).hexdigest() != info.get("sha256")):
+            del owned[key]
+    placed = set()
+    for key, info in list(owned.items()):
+        name, _, idx = key.partition("/")
+        o = PACK_HEADER + int(idx) * PACK_SLOT
+        no = info.get("no")
+        if no not in quests or no in placed:          # event over (or a duplicate)
+            packs[name][o:o + PACK_SLOT] = bytes(PACK_SLOT)
+            del owned[key]
+            removed += 1
+            continue
+        new = _slot_record(quests[no], no)
+        if bytes(packs[name][o:o + PACK_SLOT]) != new:
+            packs[name][o:o + PACK_SLOT] = new
+            info["sha256"] = hashlib.sha256(new).hexdigest()
+            updated += 1
+        placed.add(no)
+    # Quest numbers already in the packs that aren't ours (the player added them).
+    theirs = set()
+    for name, data in packs.items():
+        for i in range(PACK_SLOTS):
+            key = f"{name}/{i}"
+            if key not in owned and _slot(data, i)[:4] == b"QTDS":
+                theirs.add(quest_record_no(_slot(data, i)))
+    for no in sorted(set(quests) - placed):
+        if no in theirs:
+            notes.append(f"quest {no} is already in your packs (not added by the launcher); left alone")
+            continue
+        free = next(((n, i) for n in EVENT_PACKS for i in range(PACK_SLOTS)
+                     if f"{n}/{i}" not in owned and not any(_slot(packs[n], i))), None)
+        if free is None:
+            notes.append(f"no free event quest slot for quest {no}")
+            continue
+        name, i = free
+        new = _slot_record(quests[no], no)
+        o = PACK_HEADER + i * PACK_SLOT
+        packs[name][o:o + PACK_SLOT] = new
+        owned[f"{name}/{i}"] = {"no": no, "sha256": hashlib.sha256(new).hexdigest()}
+        added += 1
+    for name in EVENT_PACKS:
+        path = save_dir / name
+        if bytes(packs[name]) == path.read_bytes():
+            continue
+        bak = save_dir / (name + ".revival_backup")
+        if not bak.exists():
+            shutil.copy2(path, bak)
+        tmp = save_dir / (name + ".revival_tmp")
+        tmp.write_bytes(bytes(packs[name]))
+        os.replace(tmp, path)
+    return added, updated, removed, notes
+
+
+def install_event_quests(root, log=print, fetch=True):
+    """Download the official event quests and put them into every US/EU save in this
+    bundle. Never runs while Cemu is open (the game would overwrite the packs)."""
+    root = Path(root)
+    if is_running(CEMU_EXE):
+        log("[Events] Cemu is open; close it to update the event quests.")
+        return
+    saves = event_save_dirs(root)
+    if not saves:
+        return              # no save yet: the game creates the packs on its first save
+    quests = load_event_quests(root, fetch=fetch, log=log)
+    if quests is None:
+        return
+    state_path = root / EVENTS_STATE_REL
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+    if not isinstance(state, dict):
+        state = {}
+    for save in saves:
+        key = str(save.relative_to(root)).replace("\\", "/")
+        owned = state.setdefault(key, {})
+        try:
+            added, updated, removed, notes = sync_event_packs(save, quests, owned)
+        except OSError as e:
+            log(f"[Events] Couldn't update the event quests in {key} ({e}).")
+            continue
+        for n in notes:
+            log(f"[Events] Note: {n}.")
+        if added or updated or removed:
+            log(f"[Events] Event quests: {added} added, {updated} updated, {removed} removed "
+                f"({len(owned)} installed).")
+    try:
+        state_path.write_text(json.dumps(state, indent=1), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def read_launcher_settings(path):
@@ -988,6 +1233,90 @@ def _selftest():
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
+    # --- event quests ---
+    def qrec(no, filler=b"x" * 40):
+        names = b"".join(len(t).to_bytes(4, "little") + t
+                         for t in (b"Event", b"Ev", b"Ev", b"Ev", b"Ev"))
+        return b"QTDS" + (5).to_bytes(4, "little") + names + no.to_bytes(2, "little") + filler
+
+    def pack(slots=None):
+        data = bytearray(b"H" * PACK_HEADER + bytes(PACK_SLOTS * PACK_SLOT) + bytes(0x14))
+        for i, (rec, no) in (slots or {}).items():
+            o = PACK_HEADER + i * PACK_SLOT
+            data[o:o + PACK_SLOT] = _slot_record(rec, no)
+        return bytes(data)
+
+    check(quest_record_no(qrec(20350)) == 20350, "quest number read from a record")
+    check(quest_record_no(b"NOPE" + bytes(40)) is None, "non-quest -> None")
+    good = qrec(20350)
+    sha = hashlib.sha256(good).hexdigest()
+    ev = parse_events(json.dumps({"quests": [
+        {"file": "q_20350.quest", "sha256": sha},
+        {"file": "../evil.quest", "sha256": sha},
+        {"file": "q_20351.quest"}]}))
+    check(ev == [{"file": "q_20350.quest", "sha256": sha}], "event list: unsafe/incomplete dropped")
+    check(check_event_record("q_20350.quest", good + bytes(8), hashlib.sha256(good + bytes(8)).hexdigest())
+          == good, "valid event record accepted (padding trimmed)")
+    for bad, why in ((qrec(20102), "Capcom number"), (qrec(20350), "wrong hash")):
+        try:
+            check_event_record("q_20350.quest", bad,
+                               "0" * 64 if why == "wrong hash" else hashlib.sha256(bad).hexdigest())
+            check(False, f"rejects {why}")
+        except ValueError:
+            check(True, f"rejects {why}")
+    tmp = Path(tempfile.mkdtemp(prefix="mh3u_selftest_"))
+    try:
+        save = tmp / "portable/mlc01/usr/save/00050000/10118300/user/80000001"
+        save.mkdir(parents=True)
+        mine = qrec(20301, b"player's own")
+        (save / "quest1").write_bytes(pack({0: (mine, 20301)}))
+        (save / "quest2").write_bytes(pack())
+        (save / "quest3").write_bytes(pack({0: (qrec(20360, b"player-made 20360"), 20360)}))
+        (save / "quest4").write_bytes(pack())
+        check(event_save_dirs(tmp) == [save], "finds the US save with packs")
+        owned = {}
+        a, u, r, notes = sync_event_packs(save, {20350: qrec(20350), 20360: qrec(20360)}, owned)
+        q3 = (save / "quest3").read_bytes()
+        check((a, u, r) == (1, 0, 0) and any("20360" in n for n in notes),
+              "adds new quest, leaves a player's quest with the same number alone")
+        check(_slot(q3, 1)[:4] == b"QTDS" and quest_record_no(_slot(q3, 1)) == 20350,
+              "first free slot of quest3 used")
+        check((save / "quest3.revival_backup").exists(), "pack backed up before the first change")
+        check((save / "quest1").read_bytes() == pack({0: (mine, 20301)}), "quest1 untouched")
+        a, u, r, _ = sync_event_packs(save, {20350: qrec(20350, b"v2")}, owned)
+        check((a, u, r) == (0, 1, 0), "updated in place")
+        a, u, r, _ = sync_event_packs(save, {20350: qrec(20350, b"v2")}, owned)
+        check((a, u, r) == (0, 0, 0), "no change -> nothing written")
+        q3 = bytearray((save / "quest3").read_bytes())
+        o = PACK_HEADER + 1 * PACK_SLOT
+        q3[o + 100] ^= 0xFF                                  # the player edits our quest
+        (save / "quest3").write_bytes(bytes(q3))
+        a, u, r, _ = sync_event_packs(save, {}, owned)
+        check((a, u, r) == (0, 0, 0) and owned == {}, "an edited slot is no longer ours")
+        check(_slot((save / "quest3").read_bytes(), 1)[:4] == b"QTDS", "and is never cleared")
+        (save / "quest3").write_bytes(pack())
+        owned = {}
+        sync_event_packs(save, {20350: qrec(20350)}, owned)
+        a, u, r, _ = sync_event_packs(save, {}, owned)
+        check((a, u, r) == (0, 0, 1) and not any(_slot((save / "quest3").read_bytes(), 0)),
+              "event over -> our slot cleared")
+        full = {i: (qrec(20100 + i), 20100 + i) for i in range(PACK_SLOTS)}
+        for n in EVENT_PACKS:
+            (save / n).write_bytes(pack(full))
+        a, u, r, notes = sync_event_packs(save, {20350: qrec(20350)}, {})
+        check(a == 0 and any("no free" in n for n in notes), "full packs -> a note, nothing lost")
+        # offline: the cached list and quests are used
+        cache = tmp / EVENTS_CACHE_REL
+        cache.mkdir(parents=True)
+        (cache / "events.json").write_text(json.dumps({"quests": [
+            {"file": "q_20350.quest", "sha256": sha}]}), encoding="utf-8")
+        (cache / "q_20350.quest").write_bytes(good)
+        check(load_event_quests(tmp, fetch=False, log=lambda s: None) == {20350: good},
+              "offline start uses the cached event quests")
+        check(is_protected_path(EVENTS_STATE_REL), "event slot ownership is protected")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
     print()
     print("SELFTEST", "PASSED" if ok else "FAILED")
     return 0 if ok else 1
@@ -1099,6 +1428,10 @@ def _run_gui(smoke=False):
     join_news_var = tk.StringVar(value="")
     ttk.Label(join, textvariable=join_news_var, foreground=NEWS_FG, wraplength=560,
               justify="left").pack(anchor="w", pady=(6, 0))
+    events_var = tk.BooleanVar(value=jsettings.get("events", True) is not False)
+    ttk.Checkbutton(join, variable=events_var,
+                    text="Add the official event quests to my game (your own quests "
+                         "are never changed)").pack(anchor="w", pady=(6, 0))
     join_btns = ttk.Frame(join)
     join_btns.pack(anchor="w", pady=10)
     join_play = ttk.Button(join_btns, text="Save + Play")
@@ -1190,11 +1523,16 @@ def _run_gui(smoke=False):
                     ip = label = custom_ip
                     new = {"join_mode": "custom"}
                 settings = dict(read_launcher_settings(settings_path))
-                settings.update(new, custom_ip=custom_ip)
+                settings.update(new, custom_ip=custom_ip, events=bool(events_var.get()))
                 try:
                     write_launcher_settings(settings_path, settings)
                 except OSError:
                     pass
+                if events_var.get():
+                    try:
+                        install_event_quests(ROOT_DIR, log=log)
+                    except Exception as e:          # never let this block playing
+                        log(f"[Events] Skipped the event quests ({e}).")
                 run_join_flow(ROOT_DIR, ip, launch=True, log=log, host_label=label)
             finally:
                 app.after(0, lambda: join_play.configure(state="normal"))

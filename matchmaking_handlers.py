@@ -278,9 +278,48 @@ ROOM_REGION_JP, ROOM_REGION_WEST = 1, 2     # a room's attribs[2], as the games 
 # made in: 0x13 for the JP Asia/Oceania copy 0x113, 0x03 for the Western 0x103 (captured
 # 2026-11-20). The joiner's game looks that hall up for the World column and to enter.
 ROOM_HALL_OFFSET = 0x134
+ROOM_PASSWORD_OFFSET = 0xF2
+ROOM_PASSWORD_MAX = 16
+ROOM_LOCKED_ATTRIB = 5
+
+
+def _password_end(data):
+    window = data[ROOM_PASSWORD_OFFSET:ROOM_PASSWORD_OFFSET + ROOM_PASSWORD_MAX]
+    n = window.find(b"\0")
+    return ROOM_PASSWORD_OFFSET + (len(window) if n < 0 else n)
+
+
+def room_password(gathering):
+    data = bytes(getattr(gathering, "application_data", b"") or b"")
+    return data[ROOM_PASSWORD_OFFSET:_password_end(data)].decode("utf-8", "replace")
+
+
+def _unlocked(gathering):
+    attribs = list(getattr(gathering, "attribs", None) or [])
+    data = bytes(getattr(gathering, "application_data", b"") or b"")
+    end = _password_end(data)
+    flagged = len(attribs) > ROOM_LOCKED_ATTRIB and attribs[ROOM_LOCKED_ATTRIB]
+    if not flagged and end <= ROOM_PASSWORD_OFFSET:
+        return gathering
+    view = copy.copy(gathering)
+    if flagged:
+        attribs[ROOM_LOCKED_ATTRIB] = 0
+        view.attribs = attribs
+    if end > ROOM_PASSWORD_OFFSET:
+        view.application_data = (data[:ROOM_PASSWORD_OFFSET]
+                                 + bytes(end - ROOM_PASSWORD_OFFSET) + data[end:])
+    return view
 
 
 def room_view(client, gathering):
+    """A room as this client should see it. The stored room is never changed."""
+    view = _build_view(client, gathering)
+    if getattr(client, "_mh3u_master_key", False):
+        view = _unlocked(view)
+    return view
+
+
+def _build_view(client, gathering):
     """A room as this client's game build should see it. A room carries the lobby it was
     made in (attribs[1]) and its creator's region group (attribs[2]: JP 1, US/EU 2). Seen from
     the other build (JP vs Western), the lobby is one that build doesn't know and the region
@@ -714,6 +753,9 @@ class MatchmakeExtensionServer(matchmaking.MatchmakeExtensionServer):
         logger.info("join_matchmake_session_ex: pid=%s -> gid=0x%x msg=%r ignore_block=%s (now %d participants)",
                     pid, gid, message, ignore_block_list,
                     REGISTRY.sessions[gid].gathering.num_participants)
+        if (getattr(client, "_mh3u_master_key", False)
+                and room_password(REGISTRY.sessions[gid].gathering)):
+            logger.warning("master key: pid=%s entered locked room gid=0x%x", pid, gid)
         output.buffer(key)
 
     async def open_participation(self, client, gid):

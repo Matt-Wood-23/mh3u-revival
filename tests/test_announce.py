@@ -288,9 +288,38 @@ def test_who_lists_players_with_names_and_places(monkeypatch):
     assert (alice["hall"], alice["room"]) == ("Americas", "Hunt 80")   # the game's room name
     assert (bob["hunter"], bob["game"], bob["hall"], bob["room"]) == ("Bob", "JP", "Americas", "")
     assert 120 <= alice["online_s"] <= 130
-    assert snap["rooms"] == [{"gid": "0x%x" % room.gid, "name": "Hunt 80", "players": 1}]
+    assert snap["rooms"] == [{"gid": "0x%x" % room.gid, "name": "Hunt 80", "players": 1,
+                              "password": ""}]
+    assert alice["room_password"] == "" and not alice["master_key"]
     code, body = _admin("GET", "/players")
     assert code == 200 and sorted(p["hunter"] for p in body["players"]) == ["Alice", "Bob"]
+
+
+def test_master_key_by_name_or_pid(monkeypatch):
+    import who
+    r, clients, reg = _world(monkeypatch)
+    a, b, c = _Conn(), _Conn(), _Conn()
+    clients.update({11: a, 12: b, 13: c})
+    a._mh3u_status = "3\t0x101\t0x201\t0x1001\t0x1\tHunt 80\t1\t4\tAlice\t42\t9\t1\t0\t0\t0\t"
+    b._mh3u_status = "2\t0x101\t0x201\t0x0\t0x1\tNot Login\t0\t0\tSam\t7\t9\t0\t0\t0\t0\t"
+    c._mh3u_status = "2\t0x101\t0x201\t0x0\t0x1\tNot Login\t0\t0\tsam\t9\t9\t0\t0\t0\t0\t"
+    room = reg.create(types.SimpleNamespace(
+        description="", application_data=bytes(0xF2) + b"AB1\0" + bytes(60)), 11)
+    code, body = _admin("POST", "/masterkey?player=alice")       # hunter name, any case
+    assert code == 200 and body == {"pid": 11, "hunter": "Alice", "master_key": True}
+    assert a._mh3u_master_key and not getattr(b, "_mh3u_master_key", False)
+    snap = who.snapshot()
+    by = {p["pid"]: p for p in snap["players"]}
+    assert by[11]["master_key"] and by[11]["room_password"] == "AB1"
+    assert snap["rooms"][0]["password"] == "AB1" and room.gid
+    assert _admin("POST", "/masterkey?player=11&on=0")[1]["master_key"] is False
+    assert not a._mh3u_master_key
+    code, body = _admin("POST", "/masterkey?player=Sam")         # two Sams: needs the PID
+    assert code == 404 and "PID" in body["error"]
+    assert _admin("POST", "/masterkey?player=12")[0] == 200
+    assert _admin("POST", "/masterkey?player=Nobody")[0] == 404
+    assert _admin("POST", "/masterkey?player=")[0] == 404
+    assert _admin("GET", "/masterkey?player=11")[0] == 405
 
 
 def test_admin_dashboard_page():

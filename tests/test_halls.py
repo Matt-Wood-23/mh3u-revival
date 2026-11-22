@@ -98,6 +98,43 @@ def test_rooms_point_at_the_viewers_own_lobby(monkeypatch):
     assert r.local_gid(0x203, True) == 0x213 and r.local_gid(0x1001, True) == 0x1001
 
 
+def test_master_key_shows_locked_rooms_open(monkeypatch):
+    from types import SimpleNamespace
+    from nintendo.nex import matchmaking
+    r = _registry(monkeypatch, ["Americas"])
+    monkeypatch.setattr(mh, "COMMUNITY", r)
+    data = bytearray(309)
+    data[0] = 0x10
+    data[0xC1:0xCB] = b"CemuMH3U01"
+    data[0xF2:0xF6] = b"WXYZ"
+    data[0x112:0x116] = b"matt"
+    data[0x134] = 0x01
+    room = matchmaking.MatchmakeSession()
+    room.attribs = [1, 0x201, 2, 0, 0, 1, 0, 0, 0]
+    room.application_data = bytes(data)
+    assert mh.room_password(room) == "WXYZ"
+    plain, keyed = SimpleNamespace(_mh3u_jp=False), SimpleNamespace(_mh3u_jp=False)
+    keyed._mh3u_master_key = True
+    assert mh.room_view(plain, room) is room
+    seen = mh.room_view(keyed, room)
+    assert seen.attribs[5] == 0 and mh.room_password(seen) == ""
+    assert seen.application_data[0xF2:0xF6] == bytes(4)
+    assert seen.application_data[:0xF2] == bytes(data[:0xF2])
+    assert seen.application_data[0xF6:] == bytes(data[0xF6:])
+    assert room.attribs[5] == 1 and mh.room_password(room) == "WXYZ"
+    open_room = matchmaking.MatchmakeSession()
+    open_room.attribs = [1, 0x201, 2, 0, 0, 0, 0, 0, 0]
+    open_room.application_data = bytes(309)
+    assert mh.room_view(keyed, open_room) is open_room
+    jp_room = matchmaking.MatchmakeSession()
+    jp_room.attribs = [1, 0x211, 1, 0, 0, 1, 0, 0, 0]
+    jp_room.application_data = bytes(data[:0x134]) + b"\x11"
+    seen = mh.room_view(keyed, jp_room)
+    assert seen.attribs[:3] == [1, 0x201, 2] and seen.attribs[5] == 0
+    assert seen.application_data[0x134] == 0x01 and mh.room_password(seen) == ""
+    assert mh.room_password(SimpleNamespace(application_data=b"")) == ""
+
+
 def test_hall_names_with_translations():
     langs = mh._hall_langs("Americas|Amériques|Americhe|Amerika|Américas, Europe|| Europa ,Asia", 1)
     assert langs[0] == ["Americas", "Amériques", "Americhe", "Amerika", "Américas"]

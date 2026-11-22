@@ -51,7 +51,7 @@ PAGE = """<!doctype html>
     <h2>Online now</h2>
     <div class="scroll"><table>
       <thead><tr><th>Hunter</th><th>HR</th><th>Account</th><th>Game</th><th>Chat language</th>
-        <th>Hall</th><th>Room</th><th>Online for</th></tr></thead>
+        <th>Hall</th><th>Room</th><th>Online for</th><th>Master key</th></tr></thead>
       <tbody id="players"></tbody>
     </table></div>
     <div class="empty" id="noplayers" hidden>Nobody is online.</div>
@@ -118,9 +118,20 @@ async function refresh() {
     body.replaceChildren();
     for (const pl of p.players) {
       const tr = document.createElement("tr");
+      const room = pl.room + (pl.room_password ? " (password " + pl.room_password + ")" : "");
+      const key = document.createElement("button");
+      key.textContent = pl.master_key ? "Take back" : "Give";
+      if (pl.master_key) key.classList.add("armed");
+      key.onclick = async () => {
+        await fetch("/masterkey?player=" + pl.pid + "&on=" + (pl.master_key ? 0 : 1),
+                    { method: "POST" });
+        refresh();
+      };
+      const keycell = document.createElement("td");
+      keycell.append(key);
       tr.append(cell(pl.hunter || "?", "name"), cell(pl.hr), cell(pl.account),
-                cell(pl.game), cell(pl.language), cell(pl.hall), cell(pl.room),
-                cell(ago(pl.online_s)));
+                cell(pl.game), cell(pl.language), cell(pl.hall), cell(room),
+                cell(ago(pl.online_s)), keycell);
       body.append(tr);
     }
     $("noplayers").hidden = p.players.length > 0;

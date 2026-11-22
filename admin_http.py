@@ -107,6 +107,14 @@ async def handle(method, target, body):
                                                    int(q.get("max_minutes", 60))))
         except ValueError as e:
             return _json(400, {"error": str(e)})
+    if path == "/masterkey":
+        if method != "POST":
+            return _json(405, {"error": "POST ?player=<hunter name or PID>&on=1|0"})
+        try:
+            return _json(200, who.set_master_key(
+                q.get("player", ""), q.get("on", "1").lower() not in ("0", "false", "off", "no")))
+        except LookupError as e:
+            return _json(404, {"error": str(e)})
     if path == "/restart/cancel":
         if method != "POST":
             return _json(405, {"error": "POST"})

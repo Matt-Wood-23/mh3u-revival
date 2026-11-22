@@ -3,11 +3,15 @@
   "quests": [
     {
       "file": "q_20150.quest",
-      "sha256": "7b47aa678832f3fdf02ceb126b47738879a72bef28312f2d20087b75207b479e"
+      "sha256": "d66a6370a428638159e8a0b4ce9a1a45356e06ddeaaea65eed6bed8a615092f4"
+    },
+    {
+      "file": "q_20151.quest",
+      "sha256": "296f6ce1bd1b1dd7d3694821713b83bdc4293004e6e286a508df6662dc7fb9d5"
     },
     {
       "file": "q_20250.quest",
-      "sha256": "775542bf41acccb74bbafe09fe08029e9d3cfbc6f4f36f16fd7c12c2abd2ccfe"
+      "sha256": "75d283088a43742686aab7fe6155ad298e314a075950bdc0d0177e0b6833f856"
     },
     {
       "file": "q_20350.quest",

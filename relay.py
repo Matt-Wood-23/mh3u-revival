@@ -51,6 +51,11 @@ def advertise_for(recipient_ip):
     deployments, and overlay networks like Radmin 26.x / Tailscale 100.x, which do not
     read as private) is unchanged.
     """
+    if config.RELAY_ALL:
+        # Every player's REGISTER URL carries RELAY_ADDRESS (protocols.register), and the
+        # game rejects a probe address whose IP differs from the URL it already knows, so
+        # everyone must be told the same address. LAN players hairpin.
+        return config.RELAY_ADDRESS
     lan = config.RELAY_ADDRESS_LAN
     if not lan or config.is_private_ip(config.RELAY_ADDRESS):
         return config.RELAY_ADDRESS

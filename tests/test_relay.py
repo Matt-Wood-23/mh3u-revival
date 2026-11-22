@@ -15,6 +15,7 @@ import asyncio
 from nintendo.nex import common
 
 import config
+import limits
 import matchmaking_handlers as mh
 import protocols
 import relay
@@ -606,6 +607,57 @@ async def test_advertise_overlay_peer_unchanged():
 
 async def test_advertise_unknown_recipient_is_unchanged():
     assert _advertise(PUBLIC_IP, "192.168.1.50", None) == PUBLIC_IP
+
+
+async def test_advertise_relay_all_gives_everyone_one_address():
+    # RELAY_ALL stamps RELAY_ADDRESS into every REGISTER reply, so the probes must carry
+    # that same address for every recipient, LAN players included.
+    old = config.RELAY_ALL
+    config.RELAY_ALL = True
+    try:
+        assert _advertise(PUBLIC_IP, "192.168.1.50", "192.168.1.77") == PUBLIC_IP
+        assert _advertise(PUBLIC_IP, "192.168.1.50", "8.8.4.4") == PUBLIC_IP
+    finally:
+        config.RELAY_ALL = old
+
+
+async def _register_as(relay_all, observed=("8.8.4.4", 40000), pid=0x51000001):
+    class FakeClient:
+        def pid(self):
+            return pid
+
+        def remote_address(self):
+            return observed
+
+    old = (config.RELAY_ALL, config.RELAY_ADDRESS, config.RELAY_ADDRESS_LAN)
+    config.RELAY_ALL, config.RELAY_ADDRESS, config.RELAY_ADDRESS_LAN = relay_all, PUBLIC_IP, ""
+    client = FakeClient()
+    try:
+        url = common.StationURL(scheme="prudp", address="192.168.1.20", port=50000,
+                                natf=0, natm=0, pmp=0, sid=15, upnp=0)
+        resp = await protocols.SecureConnectionServer().register(client, [url])
+        return resp.public_station, mh.STATIONS[pid]
+    finally:
+        mh.CLIENTS.pop(pid, None)
+        mh.STATIONS.pop(pid, None)
+        mh.CID_TO_PID.pop(getattr(client, "_mh3u_cid", None), None)
+        if getattr(client, "_mh3u_ip_counted", False):
+            limits.ip_remove(client._mh3u_ip)
+        config.RELAY_ALL, config.RELAY_ADDRESS, config.RELAY_ADDRESS_LAN = old
+
+
+async def test_register_relay_all_tells_the_relay_address():
+    # Peers learn each other's URLs from this reply (host -> joiner over P2P); a relayed
+    # probe whose IP differs from it makes the game leave the room (config.RELAY_ALL).
+    told, kept = await _register_as(True)
+    assert told["address"] == PUBLIC_IP
+    assert told["port"] == 40000 and told["RVCID"] == kept["RVCID"]
+    assert kept["address"] == "8.8.4.4"        # the server keeps what it observed
+
+
+async def test_register_without_relay_all_tells_the_observed_address():
+    told, kept = await _register_as(False)
+    assert told["address"] == kept["address"] == "8.8.4.4"
 
 
 # ---------------------------------------------------------------------------

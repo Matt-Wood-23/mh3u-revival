@@ -345,16 +345,20 @@ async def main():
                 "  prudp_resend=%gs",
                 config.GAME_SERVER_ID, config.ACCESS_KEY, config.NEX_VERSION,
                 s["prudp.resend_timeout"])
+    if config.RELAY_ALL_REQUESTED and not config.RELAY_ALL:
+        logger.warning("MH3U_RELAY_ALL=1 ignored: it needs MH3U_RELAY=force (now %s)",
+                       config.RELAY_MODE)
     if relay.enabled():
         # probes= is printed on purpose: it is the one relay setting whose wrong value
         # silently breaks 3-player rooms, and a stale binary that predates the setting
         # would ignore the env var with no other symptom. If a host reports ejections,
         # this line settles what was actually in effect.
         logger.info("UDP relay: mode=%s probes=%s bind=%s ports=%d-%d advertise=%s "
-                    "idle=%.0fs strict=%s",
+                    "idle=%.0fs strict=%s all=%s",
                     config.RELAY_MODE, config.RELAY_PROBES_MODE, config.HOST,
                     config.RELAY_PORT_START, config.RELAY_PORT_END, config.RELAY_ADDRESS,
-                    config.RELAY_IDLE_TIMEOUT, "on" if config.RELAY_STRICT else "off")
+                    config.RELAY_IDLE_TIMEOUT, "on" if config.RELAY_STRICT else "off",
+                    "on" if config.RELAY_ALL else "off")
         # One relay socket per PEER PAIR, and a 4-player room meshes fully -> 6 pairs.
         # Warn BEFORE the pool runs dry, because the two failure modes are both nasty:
         # under force a join is refused (fail-closed, by design), and under auto the

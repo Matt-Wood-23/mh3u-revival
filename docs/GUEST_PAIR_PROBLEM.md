@@ -2,6 +2,10 @@
 
 *Findings from the first 3-player session with two real Wii U consoles, 2026-09-09.*
 
+> **Update 2026-11-22:** the reason relayed guest pairs fail is now known, and
+> `MH3U_RELAY_ALL=1` is a fix being tested. See
+> [Root cause and the relay-all fix](#root-cause-and-the-relay-all-fix-2026-11-22).
+
 ## The rule
 
 > **The player with the most restrictive NAT must be the one who creates the room.**
@@ -148,7 +152,49 @@ server-side evidence is the sustained 3-player room and the chat traffic.)
   relays guest pairs but they still deadlock, and it was the original suspect for
   "ejects the 3rd player".
 
+## Root cause and the relay-all fix (2026-11-22)
+
+Reproduced with three real Cemu instances on one PC, each behind its own simulated NAT
+and access link, against the real server:
+
+- **One guest behind a symmetric NAT** (a new external port per destination, common on
+  mobile and CGNAT links, and invisible to the NAT check because one server address
+  answers both checks): the direct guest pair fails both ways, and the joiner leaves the
+  room about 7 s later. This is the "3rd player drops" report.
+- **The same pair relayed** (`MH3U_RELAY_PROBES=all`): the joiner leaves about 1 s after
+  the relayed probe arrives, **without sending a single packet to the relay**. The packet
+  trace shows it drop the host connection right after the server's InitiateProbe names
+  the other guest at the relay address.
+
+Why: a joining guest learns the other guests' station URLs **from the host, over P2P**.
+Each of those is the URL that guest got back from REGISTER, carrying its real public IP.
+The game rejects an InitiateProbe whose **IP** differs from the URL it already knows for
+that peer (a different *port* is fine: every working direct pair has one). Host pairs are
+unaffected because the joiner gets the host's URL from `get_session_urls`, which the
+server already rewrites to the relay. Ruled out: two peers sharing the relay IP (putting
+the guest relay on a second IP failed the same way). This is also what the 2026-09-09
+"deadlock" was: "the affected peer never sends to a guest relay".
+
+**The fix:** `MH3U_RELAY_ALL=1` (with `MH3U_RELAY=force`) relays every link and stamps the
+relay's address into every REGISTER reply, so every URL a player hears already carries
+the relay IP and the relayed probes match it. In the same setup, the symmetric-NAT guest
+then stays in a 3-player room, with the guest link carrying the hunt traffic through the
+relay. Costs:
+
+- All hunt traffic goes through the server: about 1-1.6 KB/s each way per player pair in
+  town (a full 4-player room is 6 pairs).
+- Guest-to-guest links take about 17 s to come up instead of 1-2 s. With every player
+  apparently on the same public IP, the game first tries the other guest's LAN address,
+  which times out.
+
+Status: verified in the simulator. With ordinary NATs, a symmetric-NAT guest, that guest
+again at 230 ms round trip with 1% loss, and a symmetric-NAT host, every 3-player room
+came up with all three links and nobody dropped. Next: real players, and a Wii U console
+(whose `natm=2` case started this document).
+
 ## What would actually fix it
+
+*Written before the root cause was known; see the section above.*
 
 The relay cannot forward to a peer whose endpoint it has not learned, and the affected
 peer never sends to a guest relay at all. Breaking that needs one of:

@@ -352,6 +352,14 @@ class SecureConnectionServer(_Trace, secure.SecureConnectionServer):
         resp.result = common.Result.success()
         resp.connection_id = cid
         resp.public_station = station
+        if config.RELAY_ALL:
+            # The URL a player gets back here is the one its peers learn (host -> joiner over
+            # P2P). Stamp the relay's IP into it so the relayed probes that follow match it
+            # (see config.RELAY_ALL). STATIONS above keeps the observed address.
+            told = station.copy()
+            told["address"] = relay.advertise_for(None)
+            resp.public_station = told
+            logger.info("  -> RELAY_ALL: pid=%s told public=%s", _pid(client), told)
         return resp
 
     async def register_ex(self, client, urls, login_data=None):

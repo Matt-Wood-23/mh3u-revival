@@ -118,6 +118,26 @@ elif RELAY_PROBES_MODE in ("0", "false", "no"):
 if RELAY_PROBES_MODE not in ("all", "host", "off"):
     RELAY_PROBES_MODE = "all"
 
+# Relay EVERY link, guest<->guest included (MH3U_RELAY_ALL=1; needs MH3U_RELAY=force).
+#
+# Why "all" alone deadlocks (the 2026-09-09 finding above, and the guest-pair fallback that
+# failed live 2026-11-22): a joining guest learns the other guests' station URLs from the
+# HOST over P2P, i.e. the URL each of them got back from REGISTER, which carries their real
+# public IP. When the server's InitiateProbe then names that guest at the relay's IP, the
+# game drops out of the room without sending the relay anything. A different PORT is fine
+# (every working direct pair has one); a different IP is not.
+#
+# So RELAY_ALL also stamps the relay address into every REGISTER reply (and advertises one
+# relay address to everyone, LAN players included): every URL a player hears then already
+# carries the relay IP. Measured 2026-11-22 with three Cemus behind simulated NATs: a
+# symmetric-NAT guest, which loses every direct guest link, stays in a 3-player room. Costs: all gameplay traffic goes through the server (~1-1.6 KB/s each way
+# per pair in town), and guest<->guest links take ~17 s to come up instead of ~1-2 s (with
+# identical public IPs the game tries LAN addresses first). docs/GUEST_PAIR_PROBLEM.md.
+RELAY_ALL_REQUESTED = os.environ.get("MH3U_RELAY_ALL", "").strip().lower() in ("1", "true", "yes")
+RELAY_ALL = RELAY_ALL_REQUESTED and RELAY_MODE == "force"
+if RELAY_ALL:
+    RELAY_PROBES_MODE = "all"
+
 # LAN-side relay address, for sessions that mix local and internet players.
 #
 # RELAY_ADDRESS is advertised to everyone, which cannot be right for both halves of a

@@ -258,8 +258,9 @@ HALL_NAMES_JP = [_jp[i] if i < len(_jp) else HALL_NAMES[i] for i in range(NUM_WO
 # build has no widening, verified 2026-11-20). The EU build needs a ':'-packed name and the
 # JP build shows a packed name EMPTY, so every hall exists twice: a Western copy (packed
 # name, mask 6) and a JP copy (plain name, mask 1). This is how the original server split
-# them (Pretendo's data: JP worlds attribs[2]=1, Western worlds 2). Rooms stay global, so
-# JP and Western players still join each other's rooms.
+# them (Pretendo's data: JP worlds attribs[2]=1, Western worlds 2). Both copies are one
+# hall for rooms, so JP and Western players still join each other's rooms; a room is
+# listed only in the hall it was made in (room_hall, browse_matchmake_session).
 REGION_WEST = 0x6
 REGION_JP = 0x1
 JP_GID_OFFSET = 0x10
@@ -309,6 +310,18 @@ def _unlocked(gathering):
         view.application_data = (data[:ROOM_PASSWORD_OFFSET]
                                  + bytes(end - ROOM_PASSWORD_OFFSET) + data[end:])
     return view
+
+
+def room_hall(gathering):
+    """The hall a room was made in, as its Western world gid: from the lobby in attribs[1],
+    else the hall byte at the end of its data. None if neither names a hall."""
+    attribs = getattr(gathering, "attribs", None) or []
+    if len(attribs) > 1 and attribs[1] in COMMUNITY.hall_of:
+        return COMMUNITY.hall_of[attribs[1]]
+    data = bytes(getattr(gathering, "application_data", b"") or b"")
+    if len(data) > ROOM_HALL_OFFSET:
+        return COMMUNITY.hall_of.get(0x100 | data[ROOM_HALL_OFFSET])
+    return None
 
 
 def room_view(client, gathering):
@@ -448,6 +461,7 @@ class CommunityRegistry:
         self.lobbies = {}                    # world_gid -> lobby gid
         self.lobby_owner = {}                # lobby owner id (world attribs[1]) -> lobby gid
         self.jp_gids = set()                 # the JP copies (worlds and lobbies)
+        self.hall_of = {}                    # world/lobby gid (either copy) -> Western world gid
         # Each hall exists twice (see REGION_WEST / REGION_JP): the Western copy at 0x10N
         # and the JP copy at 0x11N, each with its own lobby (0x20N / 0x21N). Both carry
         # the same .label so the status page counts them as one hall.
@@ -483,6 +497,8 @@ class CommunityRegistry:
                     self.jp_gids |= {world_gid, lobby_gid}
             (w1, l1), (w2, l2) = copies
             w1.twin, w2.twin, l1.twin, l2.twin = w2, w1, l2, l1
+            for c in (w1, l1, w2, l2):
+                self.hall_of[c.pg.id] = w1.pg.id
         logger.info("halls: %s (up to %d hunters each; JP copies: %s)",
                     ", ".join(HALL_NAMES), HALL_MAX, ", ".join(HALL_NAMES_JP))
 
@@ -717,11 +733,16 @@ class MatchmakeExtensionServer(matchmaking.MatchmakeExtensionServer):
         return resp
 
     async def browse_matchmake_session(self, client, search_criteria, range):
-        # Return ALL live rooms regardless of criteria for now (MH3U's search-criteria
-        # semantics not mapped yet) so the joiner reliably sees the host's room.
-        results = [room_view(client, s.gathering) for s in REGISTRY.sessions.values()]
-        logger.info("browse: %d live room(s) gids=%s (pid=%s)",
-                    len(results), [hex(g.id) for g in results], _pid(client))
+        # The live rooms made in the hall this client is in (its JP/Western copy included):
+        # that's what separate halls are for. MH3U's search criteria aren't mapped, so
+        # they're ignored. A client in no known hall sees every room, and a room whose hall
+        # can't be told shows in every hall.
+        here = COMMUNITY.hall_of.get(getattr(client, "_mh3u_world", None))
+        results = [room_view(client, s.gathering) for s in REGISTRY.sessions.values()
+                   if here is None or room_hall(s.gathering) in (None, here)]
+        logger.info("browse: %d of %d live room(s) in hall %s gids=%s (pid=%s)",
+                    len(results), len(REGISTRY.sessions), hex(here) if here else "?",
+                    [hex(g.id) for g in results], _pid(client))
         off = getattr(range, "offset", 0) or 0
         size = getattr(range, "size", 0) or 0
         return results[off:off + size] if size else results[off:]

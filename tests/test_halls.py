@@ -135,6 +135,43 @@ def test_master_key_shows_locked_rooms_open(monkeypatch):
     assert mh.room_password(SimpleNamespace(application_data=b"")) == ""
 
 
+def test_rooms_are_listed_only_in_their_hall(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from nintendo.nex import matchmaking
+    r = _registry(monkeypatch, ["Americas", "Europe"])
+    monkeypatch.setattr(mh, "COMMUNITY", r)
+    monkeypatch.setattr(mh, "REGISTRY", mh.GatheringRegistry())
+
+    def room(host, attribs, hall_byte=None):
+        g = matchmaking.MatchmakeSession()
+        g.attribs = attribs
+        g.application_data = bytes(309) if hall_byte is None else bytes(0x134) + bytes([hall_byte])
+        return mh.REGISTRY.create(g, host).gid
+
+    americas = room(1, [1, 0x201, 2, 0, 0, 0, 0, 0, 0], 0x01)        # US player, Americas
+    europe = room(2, [1, 0x202, 2, 0, 0, 0, 0, 0, 0], 0x02)          # the room in the screenshot
+    jp_americas = room(3, [1, 0x211, 1, 0, 0, 0, 0, 0, 0], 0x11)     # JP player, Americas
+    by_byte = room(4, [1, 0, 2, 0, 0, 0, 0, 0, 0], 0x02)             # lobby unknown: hall byte
+    nowhere = room(5, [], None)                                       # can't tell: every hall
+    assert mh.room_hall(mh.REGISTRY.sessions[jp_americas].gathering) == 0x101
+    assert mh.room_hall(mh.REGISTRY.sessions[by_byte].gathering) == 0x102
+    assert mh.room_hall(mh.REGISTRY.sessions[nowhere].gathering) is None
+
+    srv = mh.MatchmakeExtensionServer()
+    everything = SimpleNamespace(offset=0, size=0)
+
+    def listed(**client):
+        rooms = asyncio.run(srv.browse_matchmake_session(
+            SimpleNamespace(pid=9, **client), None, everything))
+        return {g.id for g in rooms}
+
+    assert listed(_mh3u_world=0x101, _mh3u_jp=False) == {americas, jp_americas, nowhere}
+    assert listed(_mh3u_world=0x111, _mh3u_jp=True) == {americas, jp_americas, nowhere}
+    assert listed(_mh3u_world=0x102, _mh3u_jp=False) == {europe, by_byte, nowhere}
+    assert listed() == {americas, europe, jp_americas, by_byte, nowhere}   # hall not known yet
+
+
 def test_hall_names_with_translations():
     langs = mh._hall_langs("Americas|Amériques|Americhe|Amerika|Américas, Europe|| Europa ,Asia", 1)
     assert langs[0] == ["Americas", "Amériques", "Americhe", "Amerika", "Américas"]

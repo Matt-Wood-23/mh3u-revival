@@ -22,6 +22,8 @@ from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+# Same imports as server.py: the cloned NintendoClients next to the repo, then the repo.
+sys.path.insert(0, str(HERE.parent.parent / "external" / "NintendoClients"))
 sys.path.insert(0, str(HERE.parent))
 
 

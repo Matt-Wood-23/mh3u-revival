@@ -26,6 +26,7 @@ from nintendo.nex import rmc, common, matchmaking
 
 import host_roster_free
 import limits
+import metrics
 import relay
 
 logger = logging.getLogger("mh3u.matchmaking")
@@ -83,6 +84,7 @@ class GatheringRegistry:
         gathering.num_participants = 1
         sess = _Session(gid, gathering, host_pid, secrets.token_bytes(32))
         self.sessions[gid] = sess
+        metrics.room_created(gid, host_pid)
         return sess
 
     def browse(self, criteria):
@@ -115,6 +117,7 @@ class GatheringRegistry:
                            "rejecting join by pid=%s", gid, len(s.participants),
                            limits.MAX_ROOM_PARTICIPANTS, pid)
             raise common.RMCError("RendezVous::SessionFull")
+        metrics.room_joined(gid, pid)
         s.participants.add(pid)
         s.gathering.num_participants = len(s.participants)
         return s.key
@@ -135,11 +138,13 @@ class GatheringRegistry:
             if pid == s.host_pid:
                 del self.sessions[gid]
                 relay.MANAGER.close_gid(gid)
+                metrics.room_closed(gid)
                 affected.append(("destroyed", gid, 0))
             else:
                 s.participants.discard(pid)
                 s.gathering.num_participants = len(s.participants)
                 relay.MANAGER.close_for_pid(pid)
+                metrics.room_left(gid, pid, "logout")
                 affected.append(("left", gid, len(s.participants)))
         return affected
 
@@ -156,10 +161,12 @@ class GatheringRegistry:
         if pid == s.host_pid:
             del self.sessions[gid]
             relay.MANAGER.close_gid(gid)
+            metrics.room_closed(gid)
             return ("destroyed", gid, 0)
         s.participants.discard(pid)
         s.gathering.num_participants = len(s.participants)
         relay.MANAGER.close_for_pid(pid)
+        metrics.room_left(gid, pid, "left")
         return ("left", gid, len(s.participants))
 
     def destroy(self, gid, owner_pid=None):
@@ -174,6 +181,7 @@ class GatheringRegistry:
             return "denied"
         del self.sessions[gid]
         relay.MANAGER.close_gid(gid)
+        metrics.room_closed(gid)
         return "destroyed"
 
     def reap_host(self, pid):
@@ -188,6 +196,7 @@ class GatheringRegistry:
             if self.sessions[gid].host_pid == pid:
                 del self.sessions[gid]
                 relay.MANAGER.close_gid(gid)
+                metrics.room_closed(gid)
                 gone.append(gid)
         return gone
 
@@ -819,6 +828,7 @@ class MatchmakeExtensionServer(matchmaking.MatchmakeExtensionServer):
                     type, param1, param2, param3, _pid(client))
         if type == 101:                  # presence: hunter name, HR, room (admin page, who.py)
             client._mh3u_status = str(param3 or "")[:512]
+            metrics.presence(_pid(client), client._mh3u_status)
         return None
 
     # --- Community (gathering hall) methods --------------------------------
@@ -868,6 +878,8 @@ class MatchmakeExtensionServer(matchmaking.MatchmakeExtensionServer):
         if gid in COMMUNITY.lobbies:
             client._mh3u_world = gid     # FindLobbys fallback when the request has no owner
             client._mh3u_jp = gid in COMMUNITY.jp_gids   # which game build this client runs
+            metrics.hall(pid, getattr(COMMUNITY.communities.get(gid), "label", ""),
+                         client._mh3u_jp)
         logger.info("join_community: pid=%s -> hall 0x%x (now %d)",
                     pid, gid, COMMUNITY.communities[gid].pg.num_participants)
 

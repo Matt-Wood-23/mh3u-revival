@@ -19,6 +19,7 @@ import config
 import matchmaking_handlers
 import host_roster_free
 import limits
+import metrics
 import relay
 import relay_policy
 import who
@@ -346,6 +347,7 @@ class SecureConnectionServer(_Trace, secure.SecureConnectionServer):
         client._mh3u_since = time.time()          # "online for", on the admin page (who.py)
         matchmaking_handlers.CID_TO_PID[cid] = _pid(client)
         relay_policy.record_seen(_pid(client))
+        metrics.login(_pid(client))
         logger.info("REGISTER pid=%s cid=%s urls=%s -> public=%s",
                     _pid(client), cid, [str(u) for u in urls], station)
         resp = rmc.RMCResponse()
@@ -405,6 +407,7 @@ class SecureConnectionServer(_Trace, secure.SecureConnectionServer):
             reaped = mh.COMMUNITY.reap_owner(pid)
             relay.MANAGER.close_for_pid(pid)
             limits.forget_pid(pid)
+            metrics.logout(pid)
             logger.info("LOGOUT pid=%s cid=%s -> cleaned up; rooms affected=%s; halls left=%s%s",
                         pid, cid, pretty, [hex(g) for g in halls],
                         ("; runtime-communities destroyed=%s" % [hex(g) for g in reaped]) if reaped else "")
@@ -668,6 +671,7 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
     async def report_nat_properties(self, client, natm, natf, rtt):
         pid = _pid(client)
         relay_policy.record_nat_properties(pid, natm, natf, rtt)
+        metrics.rtt(pid, rtt)
         logger.info("report_nat_properties: natm=%s natf=%s rtt=%s (pid=%s)", natm, natf, rtt, pid)
         return None
 
@@ -783,6 +787,7 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
                 logger.info("  -> forwarded InitiateProbe(joiner=%s) to host pid=%s RVCID=%s%s",
                             probe_for_target, target_pid, rvcid,
                             (" via relay gid=0x%x" % relay_gid) if used_relay else " direct")
+                metrics.probe(caller, target_pid, used_relay)
             except Exception as e:
                 logger.info("  -> InitiateProbe forward to pid=%s failed: %s", target_pid, e)
         return None
@@ -791,6 +796,7 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
         pid = _pid(client)
         other_pid = matchmaking_handlers.CID_TO_PID.get(cid)
         learned = relay_policy.record_probe_result(pid, other_pid, cid, bool(result))
+        metrics.link_result(pid, other_pid, bool(result))
         logger.info("report_nat_traversal_result: cid=%s result=%s (pid=%s other_pid=%s)",
                     cid, result, pid, other_pid)
         if not learned:
@@ -801,6 +807,7 @@ class NATTraversalServer(_Trace, nattraversal.NATTraversalServer):
         pid = _pid(client)
         other_pid = matchmaking_handlers.CID_TO_PID.get(cid)
         learned = relay_policy.record_probe_result(pid, other_pid, cid, bool(result))
+        metrics.link_result(pid, other_pid, bool(result))
         logger.info("report_nat_traversal_result_detail: cid=%s result=%s detail=%s rtt=%s (pid=%s other_pid=%s)",
                     cid, result, detail, rtt, pid, other_pid)
         if not learned:
@@ -957,6 +964,7 @@ class MessageDeliveryServer(_Trace, messaging.MessageDeliveryServer):
             logger.info("  shout raw (pid=%s): %s", sender, bytes(raw).hex())
         announce.remember(raw, sender)         # template + sender's language, for announcements
         who.note_shout(client, raw)            # sender's account name, for the admin page
+        metrics.chat(sender)
 
         # Rate-limit the RELAY only (a modified client can spam DeliverMessage; each fans out
         # 1->N). Over the bucket we drop the relay but STILL reply below — gating the reply

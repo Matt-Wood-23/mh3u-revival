@@ -210,6 +210,8 @@ same hall and enter your room.
 | `MH3U_ANNOUNCE_NAME` | `Server` | the hunter name announcements show (up to 10 characters) |
 | `MH3U_ANNOUNCE_MAX_CHARS` | `45` | characters per chat message (at most 80: the game shows about 80 and shrinks the text past 45); longer announcements are split into up to 4 messages |
 | `MH3U_STATE_DIR` | `state` (systemd: `StateDirectory=`) | where the server keeps the Discord message id and its saved counters (`stats.json`: today's peak and relay traffic). Only written when the status page or Discord is on. |
+| `MH3U_METRICS` | on with the status page or Discord | play metrics for the dashboard (busiest hours, unique players, playtime leaderboard, connection health), kept in `<state dir>/metrics/`. `0` turns them off, `1` turns them on anywhere. See [Play metrics](#play-metrics). |
+| `MH3U_METRICS_MONTHS` | `13` | months of metrics to keep; older files are deleted at startup |
 | `MH3U_EGRESS_WARN_GB` | `5000` | post a Discord alert once a month when the relay has sent this many GB (0 = never). Oracle's free outbound allowance is 10 TB a month. |
 | `MH3U_DISCORD_STATUS_WEBHOOK` | (none) | a Discord webhook URL. The server keeps one message in that channel up to date with the player and room counts. |
 | `MH3U_DISCORD_ALERT_WEBHOOK` | (none) | a Discord webhook URL for alerts: a post when the server starts, stops, or comes back after a crash or reboot. Can be the same URL as the status one. |
@@ -249,6 +251,28 @@ ssh -N -L 18081:127.0.0.1:8081 <user>@<server>     # then open http://localhost:
 
 The admin port answers only requests addressed to localhost, so another website can't use
 a tunnel you have open. Player names appear only here, never on the public status page.
+
+### Play metrics
+
+Below those, the dashboard has a **Metrics** section, for the last 7 days, 30 days or all
+time, in your own time zone: players today / this week / this month / ever, new players and
+how many came back, the busiest hours by weekday, players per day, a playtime leaderboard
+(time in rooms and time online), connection health (joins where the player was still in the
+room a minute later, player-to-player links that came up, who fails to join most), halls,
+game versions and distance to the server, rooms and how full they get, relay traffic and
+chat per day, hunter ranks, and server restarts and crashes. `/metrics?days=7&tz=300` on
+the admin port returns the same numbers as JSON.
+
+The server records them itself on a public server (status page or Discord on), one JSON
+line per session, hour, room, join and link in `<state dir>/metrics/events-YYYY-MM.jsonl`:
+PIDs, hunter names and HR, never IP addresses. A player counts once their game sends a
+hunter name, so test clients don't. To fill in the time before you updated, rebuild those
+records from the server's journal once, after the first start of the new version:
+
+```sh
+sudo /opt/mh3u/venv/bin/python deploy/metrics_backfill.py \
+    --env /etc/mh3u.env --dir /var/lib/mh3u/metrics --owner mh3u
+```
 
 `wait=empty` waits until nobody is online at all, `wait=now` restarts after a 15-second
 warning. Players see the plan in chat when it's scheduled, every 15 minutes while it

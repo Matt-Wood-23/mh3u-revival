@@ -37,6 +37,7 @@ import users
 import protocols
 import reaper
 import limits
+import metrics
 import natcheck
 import matchmaking_handlers
 import relay
@@ -403,9 +404,12 @@ async def main():
         await natcheck.start(config.HOST)
         await status_http.start(config.HOST)
         # Saved counters (peak, relay traffic) only on a public server: status or Discord.
-        server_stats.start(persist=bool(status_http.PORT) or discord_status.enabled())
+        public = bool(status_http.PORT) or discord_status.enabled()
+        server_stats.start(persist=public)
         _supervise(lambda: server_stats.save_loop(discord_status.post_alert), "stats",
                    respawn=True)
+        if metrics.start(persist=public):     # admin page: Metrics (see metrics.py)
+            _supervise(metrics.loop, "metrics", respawn=True)
         main_task = asyncio.current_task()
         if await admin_http.start():
             def _restart():
@@ -435,6 +439,7 @@ async def main():
             restarting = _EXIT["code"] == maintenance.RESTART_EXIT_CODE
             logger.info("shutting down%s", " for a planned restart" if restarting else "")
             server_stats.save()
+            metrics.stop(restarting)
             await discord_status.stopped(restarting)   # no-op without a webhook; never raises
 
 

@@ -11,8 +11,9 @@ it can only be reached from the server machine itself, e.g. over SSH:
 /announce posts the request body as a chat message from "Server" to every player in a
 hall or room (?scope=halls or ?scope=rooms to narrow it). Long text is split into a few
 chat-sized messages. /restart: see maintenance.py. /players: who's online (hunter names,
-hall, room; who.py). / is a dashboard page for all of it (admin_page.py), opened through
-an SSH tunnel.
+hall, room; who.py). /metrics?days=7|30|0&tz=<minutes behind UTC>: busiest hours, unique
+players, playtime, connection health (metrics.py). / is a dashboard page for all of it
+(admin_page.py), opened through an SSH tunnel.
 
 Requests must name a local host (Host: localhost / 127.0.0.1) and, when a browser sends an
 Origin, come from a local page: a web page elsewhere can't use a tunnel you have open
@@ -27,6 +28,7 @@ import admin_page
 import announce
 import limits
 import maintenance
+import metrics
 import who
 
 logger = logging.getLogger("mh3u.admin")
@@ -87,6 +89,15 @@ async def handle(method, target, body):
         if method != "GET":
             return _json(405, {"error": "GET"})
         return _json(200, who.snapshot())
+    if path == "/metrics":
+        if method != "GET":
+            return _json(405, {"error": "GET"})
+        try:
+            tz, days = int(q.get("tz", "0")), int(q.get("days", "30"))
+        except ValueError:
+            tz, days = 0, 30
+        return _json(200, await asyncio.to_thread(metrics.report, None, tz,
+                                                  metrics.open_snapshot(), days))
     if path == "/announce":
         if method != "POST":
             return _json(405, {"error": "POST the message text"})

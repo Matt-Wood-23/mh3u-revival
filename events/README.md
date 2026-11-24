@@ -14,10 +14,10 @@ Anyone can make an event quest and send it in to be added to the list.
 1. **Get [MH3U Quest Studio](https://github.com/Matt-Wood-23/mh3u-quest-studio/releases)**,
    the quest editor.
 2. **Open a quest pack.** Close the game first. In Quest Studio, open the **Cemu save packs**
-   menu and pick `quest1` or `quest3` under your MH3U Online folder. If the folder
+   menu and pick `quest1`, `quest2` or `quest3` under your MH3U Online folder. If the folder
    isn't listed, use **Add a Cemu folder…** and pick the folder that has `MH3U_Online.exe` in
-   it. The game's Event Quests list only reads `quest1` and `quest3`: a quest in `quest2`
-   never shows, and `quest4` is for arena quests. Keep a pack's quests together from the
+   it. The game's Event Quests list reads `quest1`, `quest2` and `quest3`; `quest4` is for
+   arena quests. Keep a pack's quests together from the
    first slot: the game reads only as many slots from the start as the pack has quests, so
    an empty slot in between hides the last quest.
 3. **Click New quest…** and pick an event quest to copy. The official ones (A Golden Welcome,

@@ -24,11 +24,12 @@ showing the bundle version and update state.
 - writes the host IP to `portable\mh3u_server.txt` (pre-filled if already set);
 - with "Add the official event quests" ticked: puts the official event quests (downloaded
   from `events/`) **and the 38 quests Capcom used to offer as downloads** into the US/EU save
-  packs: the 28 event quests go into `quest3`, then `quest1`, the only two the game's Event
-  Quests list reads; the 10 Challenge Quests (61000-61009) go into `quest4`, which the
-  Arena's Challenge list reads. It never uses `quest2` (quests older launchers put there are
-  moved), and closes up any pack it changes, since the game stops reading a pack early when
-  there's an empty slot in it.
+  packs: the 28 event quests go into `quest3`, then `quest1`, then `quest2`, the packs the
+  game's Event Quests list reads; the 10 Challenge Quests (61000-61009) go into `quest4`,
+  which the Arena's Challenge list reads. A pack that is a renamed copy of another (its
+  header still names the original, so the game skips it, e.g. a `quest1` copied to `quest2`
+  by hand) gets no quests, and quests the launcher put there move out. It closes up any pack
+  it changes, since the game stops reading a pack early when there's an empty slot in it.
   Capcom's are copied from the player's own game (`content\nativeCafe\quest\us`, found in
   Cemu's mlc01, recently launched games or Game Paths; unpacked games only), so nothing
   from the game ships with the bundle. They are exactly what the download servers (Capcom's,

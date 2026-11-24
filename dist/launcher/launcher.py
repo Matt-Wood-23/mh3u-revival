@@ -35,6 +35,7 @@ import tempfile
 import subprocess
 import threading
 import urllib.request
+import zlib
 from pathlib import Path
 
 # The launcher's text in the six languages the games use (launcher_i18n.py, keyed by the
@@ -494,14 +495,16 @@ def format_status(snap):
 # Official event quests
 #
 # The save folder holds four quest "packs" (quest1..quest4, 20 slots each). Tested in game
-# 2026-11-24 (US): the Event Quests list reads only quest1 and quest3 (quest2 is never read;
-# quest4 is the Arena's Challenge list), and from each it reads only as many slots from slot
-# 0 as the pack has quests in it, so a gap hides the last quests. The launcher puts the
-# event quests into free slots of quest3, then quest1, closes up any pack it changes, and
-# remembers a fingerprint of every slot it wrote. It only ever changes or clears a slot
-# that still matches that fingerprint (closing up gaps may move a player's quest to an
-# earlier slot, unchanged). Each pack is backed up once (questN.revival_backup) before the
-# launcher first changes it.
+# (US): the Event Quests list reads quest1, quest2 and quest3, in that order (quest4 is the
+# Arena's Challenge list), and from each it reads only as many slots from slot 0 as the pack
+# has quests in it, so a gap hides the last quests. Every save file's header holds a hash of
+# its own file name, and the game skips a file whose hash belongs to another name: a quest1
+# copied to quest2 by hand is never read. The launcher puts the event quests into free
+# slots of quest3, then quest1, then quest2, never into such a copy, closes up any pack it
+# changes, and remembers a fingerprint of every slot it wrote. It only ever changes or
+# clears a slot that still matches that fingerprint (closing up gaps may move a player's
+# quest to an earlier slot, unchanged). Each pack is backed up once (questN.revival_backup)
+# before the launcher first changes it.
 #
 # The quest number sets the rank the game lists it under: 201xx low, 202xx high, 203xx G
 # rank. The official ones use the top half of each block, clear of Capcom's own event
@@ -515,9 +518,9 @@ def event_number_ok(no):
 
 
 EVENT_NO_TEXT = ", ".join(f"{lo}-{hi}" for lo, hi in EVENT_NO_RANGES)
-EVENT_PACKS = ("quest3", "quest1")              # the packs the Event Quests list reads
-OLD_EVENT_PACKS = ("quest2",)                   # launchers before 2026-11-24 also used it
+EVENT_PACKS = ("quest3", "quest1", "quest2")    # the packs the Event Quests list reads, fill order
 CHALLENGE_PACK = "quest4"                       # the Arena's Challenge Quests list reads it
+SAVE_PACKS = ("quest1", "quest2", "quest3", "quest4")
 CHALLENGE_NOS = tuple(range(61000, 61010))      # the only numbers that list lists (fixed in code)
 
 
@@ -526,6 +529,21 @@ def target_packs(no):
     return (CHALLENGE_PACK,) if no in CHALLENGE_NOS else EVENT_PACKS
 EVENT_TITLES = ("10118300", "10117200")          # US, EU (the JP game lists all its own)
 PACK_HEADER, PACK_SLOT, PACK_DATA, PACK_NAME, PACK_SLOTS = 0x28, 0x2010, 0x2000, 16, 20
+PACK_NAME_HASH = 0x14                           # header offset of the file-name hash
+
+
+def pack_hash(name):
+    """The name hash a save file's header holds (JAMCRC of its own file name)."""
+    return zlib.crc32(name.encode("ascii")) ^ 0xFFFFFFFF
+
+
+def pack_copied_from(name, data):
+    """The pack this one is a renamed copy of (its header names another quest pack, so the
+    game skips it), or None."""
+    h = int.from_bytes(data[PACK_NAME_HASH:PACK_NAME_HASH + 4], "big")
+    if h == pack_hash(name):
+        return None
+    return next((n for n in SAVE_PACKS if n != name and pack_hash(n) == h), None)
 
 
 def quest_record_no(rec):
@@ -628,7 +646,7 @@ def event_save_dirs(root):
         if users.is_dir():
             out += [d for d in sorted(users.iterdir())
                     if d.is_dir() and re.fullmatch(r"[0-9a-fA-F]{8}", d.name)
-                    and all((d / p).is_file() for p in EVENT_PACKS)]
+                    and all((d / p).is_file() for p in ("quest1", "quest3"))]
     return out
 
 
@@ -665,14 +683,15 @@ def sync_event_packs(save_dir, quests, owned, keep=()):
     """Bring one save folder's packs in line with `quests` ({number: record}).
     `owned` ({"quest3/0": {"no", "sha256"}}) says which slots the launcher wrote; it's
     updated in place. Our slots holding a number in `keep` but not in `quests` stay as
-    they are (their source couldn't be read this time). Our quests found in quest2 (older
-    launchers used it; the game never reads it) move to quest3/quest1. Every pack we change
-    is closed up so it has no gaps. Returns (added, updated, removed, notes)."""
+    they are (their source couldn't be read this time). A pack that is a renamed copy of
+    another (the game skips it) gets no quests, and ours found in it move to a pack the game
+    reads. Every pack we change is closed up so it has no gaps. Returns (added, updated,
+    removed, notes)."""
     save_dir = Path(save_dir)
     packs = {}
-    for name in EVENT_PACKS + OLD_EVENT_PACKS + (CHALLENGE_PACK,):
+    for name in EVENT_PACKS + (CHALLENGE_PACK,):
         path = save_dir / name
-        if name not in EVENT_PACKS and not path.is_file():
+        if not path.is_file():
             continue
         data = bytearray(path.read_bytes())
         if len(data) < PACK_HEADER + PACK_SLOTS * PACK_SLOT:
@@ -680,6 +699,13 @@ def sync_event_packs(save_dir, quests, owned, keep=()):
         packs[name] = data
     before = {name: bytes(data) for name, data in packs.items()}
     notes = []
+    skipped = {}                                     # renamed copies: the game never reads them
+    for name, data in packs.items():
+        src = pack_copied_from(name, data)
+        if src:
+            skipped[name] = src
+            notes.append(T("{name} is a renamed copy of {other}, so the game skips it; "
+                           "the launcher puts no quests there", name=name, other=src))
     added = updated = removed = 0
     # Forget slots that no longer hold exactly what we wrote (the player changed them). A
     # quest that only moved (Quest Studio closes gaps and has "Move to") is found again by
@@ -699,7 +725,7 @@ def sync_event_packs(save_dir, quests, owned, keep=()):
         name, _, idx = key.partition("/")
         o = PACK_HEADER + int(idx) * PACK_SLOT
         no = info.get("no")
-        if name in OLD_EVENT_PACKS:                   # never shown there: move it
+        if name in skipped:                           # never shown there: move it
             rec = bytes(packs[name][o:o + PACK_DATA]).rstrip(b"\0")
             packs[name][o:o + PACK_SLOT] = bytes(PACK_SLOT)
             del owned[key]
@@ -727,7 +753,7 @@ def sync_event_packs(save_dir, quests, owned, keep=()):
     theirs = {}
     for name in EVENT_PACKS + (CHALLENGE_PACK,):
         theirs[name] = set()
-        if name not in packs:
+        if name not in packs or name in skipped:
             continue
         for i in range(PACK_SLOTS):
             key = f"{name}/{i}"
@@ -739,7 +765,8 @@ def sync_event_packs(save_dir, quests, owned, keep=()):
                 notes.append(T("quest {no} is already in your packs (not added by the launcher); "
                                "left alone", no=no))
             continue
-        free = next(((n, i) for n in target_packs(no) if n in packs for i in range(PACK_SLOTS)
+        free = next(((n, i) for n in target_packs(no) if n in packs and n not in skipped
+                     for i in range(PACK_SLOTS)
                      if f"{n}/{i}" not in owned and not any(_slot(packs[n], i))), None)
         if free is None:
             notes.append(T("no free event quest slot for quest {no}", no=no))
@@ -754,7 +781,9 @@ def sync_event_packs(save_dir, quests, owned, keep=()):
         else:
             added += 1
     # Close up the gaps in every pack we changed or that holds one of our quests behind a gap.
-    for name in EVENT_PACKS + ((CHALLENGE_PACK,) if CHALLENGE_PACK in packs else ()):
+    for name in packs:
+        if name in skipped:
+            continue
         ours = any(k.partition("/")[0] == name for k in owned)
         if _has_gap(packs[name]) and (bytes(packs[name]) != before[name] or ours):
             moves = _compact(packs[name])
@@ -781,7 +810,7 @@ def sync_event_packs(save_dir, quests, owned, keep=()):
 # content/nativeCafe/quest/us (and /eu, identical) but never list them: players had to
 # download them. That download (Capcom's server, now the goshawk replacement servers) was
 # exactly these 28 event quests plus the 10 Challenge Quests (61000-61009). The launcher
-# copies all 38 from the player's own game into the save (event quests into quest3/quest1,
+# copies all 38 from the player's own game into the save (event quests into the event packs,
 # Challenge Quests into quest4), beside the official ones, so nothing from the game is
 # redistributed. The nine collab quests are left out (their Western copies are placeholders
 # named DUMMY). The Japanese game already lists all of its event quests.
@@ -1580,8 +1609,11 @@ def _selftest():
                          for t in (b"Event", b"Ev", b"Ev", b"Ev", b"Ev"))
         return b"QTDS" + (5).to_bytes(4, "little") + names + no.to_bytes(2, "little") + filler
 
-    def pack(slots=None):
+    def pack(slots=None, header=None):
+        """A quest pack; `header` = the pack name its header hash belongs to."""
         data = bytearray(b"H" * PACK_HEADER + bytes(PACK_SLOTS * PACK_SLOT) + bytes(0x14))
+        if header:
+            data[PACK_NAME_HASH:PACK_NAME_HASH + 4] = pack_hash(header).to_bytes(4, "big")
         for i, (rec, no) in (slots or {}).items():
             o = PACK_HEADER + i * PACK_SLOT
             data[o:o + PACK_SLOT] = _slot_record(rec, no)
@@ -1703,29 +1735,56 @@ def _selftest():
         a, u, r, _ = sync_event_packs(save, {}, owned)
         check(r == 1 and not owned, "no longer wanted -> removed")
 
-        print("== only quest1/quest3, no gaps ==")
+        print("== event packs, renamed copies, no gaps ==")
         def nos(n, k=4):
             d = (save / n).read_bytes()
             return [quest_record_no(_slot(d, i)) if _slot(d, i)[:4] == b"QTDS" else None for i in range(k)]
         def slot_sha(rec, no):
             return hashlib.sha256(_slot_record(rec, no)).hexdigest()
-        for n in EVENT_PACKS + OLD_EVENT_PACKS + ("quest4",):
+        check([pack_hash(n) for n in SAVE_PACKS] == [0xFFB38277, 0x66BAD3CD, 0x11BDE35B, 0x8FD976F8],
+              "pack name hashes match real save files")
+        check(pack_copied_from("quest2", pack(header="quest1")) == "quest1"
+              and pack_copied_from("quest2", pack(header="quest2")) is None
+              and pack_copied_from("quest2", pack()) is None, "a renamed copy is recognised by its header")
+        for n in EVENT_PACKS + ("quest4",):
             (save / n).write_bytes(pack())
-        (save / "quest2").write_bytes(pack({0: (qrec(20102, b"player"), 20102)}))
+        (save / "quest2").write_bytes(pack({0: (qrec(20102, b"player"), 20102)}, header="quest2"))
         owned = {}
-        a, u, r, _ = sync_event_packs(save, {20102: got[20102], 20250: qrec(20250), 20350: qrec(20350)}, owned)
-        check(a == 3 and nos("quest3") == [20102, 20250, 20350, None] and nos("quest2")[0] == 20102,
-              "a quest the player has only in quest2 (never shown) is still added; quest2 untouched")
-        a, u, r, _ = sync_event_packs(save, {20102: got[20102], 20350: qrec(20350)}, owned)
-        check(r == 1 and nos("quest3") == [20102, 20350, None, None]
-              and set(owned) == {"quest3/0", "quest3/1"}, "removing a quest closes the gap")
+        a, u, r, notes = sync_event_packs(save, {20102: got[20102], 20250: qrec(20250), 20350: qrec(20350)},
+                                          owned)
+        check(a == 2 and nos("quest3") == [20250, 20350, None, None] and nos("quest2")[0] == 20102
+              and not notes, "a Capcom quest the player already has in quest2 isn't added again")
+        a, u, r, _ = sync_event_packs(save, {20350: qrec(20350)}, owned)
+        check(r == 1 and nos("quest3") == [20350, None, None, None]
+              and set(owned) == {"quest3/0"}, "removing a quest closes the gap")
+        copied = pack({0: (qrec(20102, b"player"), 20102)}, header="quest1")
+        (save / "quest2").write_bytes(copied)
+        (save / "quest3").write_bytes(pack())
+        owned = {}
+        a, u, r, notes = sync_event_packs(save, {20102: got[20102]}, owned)
+        check(a == 1 and nos("quest3")[0] == 20102 and (save / "quest2").read_bytes() == copied
+              and any("quest2" in n and "quest1" in n for n in notes),
+              "quest2 that is a renamed quest1 is skipped like the game does: 20102 added, quest2 untouched")
+        (save / "quest3").write_bytes(pack({0: (qrec(20350), 20350)}))
+        (save / "quest1").write_bytes(pack(full))
+        (save / "quest2").write_bytes(pack())
+        owned = {"quest3/0": {"no": 20350, "sha256": slot_sha(qrec(20350), 20350)}}
+        a, u, r, _ = sync_event_packs(save, {20350: qrec(20350), 20250: qrec(20250), 20150: qrec(20150)}, owned)
+        check(a == 2 and nos("quest3")[:3] == [20350, 20150, 20250], "quest3 fills first")
+        (save / "quest3").write_bytes(pack(full))
+        owned = {}
+        a, u, r, _ = sync_event_packs(save, {20350: qrec(20350)}, owned)
+        check(a == 1 and nos("quest2")[0] == 20350 and list(owned) == ["quest2/0"],
+              "quest2 is used when quest3 and quest1 are full")
+        for n in EVENT_PACKS:
+            (save / n).write_bytes(pack())
         (save / "quest3").write_bytes(pack({2: (qrec(20360, b"player"), 20360)}))
         owned = {}
         sync_event_packs(save, {20350: qrec(20350)}, owned)
         check(nos("quest3") == [20350, 20360, None, None] and list(owned) == ["quest3/0"]
               and _slot((save / "quest3").read_bytes(), 1) == _slot_record(qrec(20360, b"player"), 20360),
               "a player's quest behind a gap moves up, unchanged")
-        for n in EVENT_PACKS + OLD_EVENT_PACKS:
+        for n in EVENT_PACKS:
             (save / n).write_bytes(pack())
         (save / "quest4").write_bytes(pack({0: (qrec(61001, b"player's CQ2"), 61001)}))
         owned = {}
@@ -1743,15 +1802,20 @@ def _selftest():
         (save / "quest3").write_bytes(pack())
         owned = {"quest2/3": {"no": 20150, "sha256": slot_sha(qrec(20150), 20150)}}
         a, u, r, _ = sync_event_packs(save, {20150: qrec(20150)}, owned)
+        check((a, u, r) == (0, 0, 0) and list(owned) == ["quest2/0"] and nos("quest2")[0] == 20150
+              and nos("quest3") == [None] * 4, "our quest in quest2 stays there (moved up to close the gap)")
+        (save / "quest2").write_bytes(pack({3: (qrec(20150), 20150)}, header="quest1"))
+        owned = {"quest2/3": {"no": 20150, "sha256": slot_sha(qrec(20150), 20150)}}
+        a, u, r, _ = sync_event_packs(save, {20150: qrec(20150)}, owned)
         check((a, u, r) == (0, 1, 0) and list(owned) == ["quest3/0"] and nos("quest2") == [None] * 4,
-              "an older launcher's quest in quest2 moves to quest3")
-        (save / "quest2").write_bytes(pack({0: (qrec(20102), 20102)}))
+              "our quest in a renamed-copy quest2 moves to quest3")
+        (save / "quest2").write_bytes(pack({0: (qrec(20102), 20102)}, header="quest1"))
         (save / "quest3").write_bytes(pack())
         owned = {"quest2/0": {"no": 20102, "sha256": slot_sha(qrec(20102), 20102)}}
         sync_event_packs(save, {}, owned, keep=set(GAME_EVENT_NOS))
         check(list(owned) == ["quest3/0"]
               and _slot((save / "quest3").read_bytes(), 0) == _slot_record(qrec(20102), 20102),
-              "game files unreadable: our quest2 copy still moves, unchanged")
+              "game files unreadable: our copy in a renamed-copy quest2 still moves, unchanged")
 
         print("== always-on graphic packs ==")
         fix = f'<Entry filename="graphicPacks/{ALWAYS_ON_PACKS[0]}/rules.txt"/>'

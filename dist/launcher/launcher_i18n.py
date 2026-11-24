@@ -407,6 +407,18 @@ STRINGS = {
         "es": "[Events] Nota: {note}.",
         "ja": "[Events] 注意：{note}。",
     },
+    "{name} is a renamed copy of {other}, so the game skips it; the launcher puts no quests there": {
+        "fr": "{name} est une copie renommée de {other}, donc le jeu l'ignore ; le lanceur n'y met "
+              "aucune quête",
+        "de": "{name} ist eine umbenannte Kopie von {other}, daher überspringt das Spiel sie; der "
+              "Launcher legt dort keine Quests ab",
+        "it": "{name} è una copia rinominata di {other}, quindi il gioco la salta; il launcher non vi "
+              "mette missioni",
+        "es": "{name} es una copia renombrada de {other}, así que el juego la omite; el lanzador no pone "
+              "misiones ahí",
+        "ja": "{name} は {other} の名前を変えたコピーなので、ゲームは読み込みません。ランチャーはここに"
+              "クエストを入れません",
+    },
     "{name} looks damaged; left alone": {
         "fr": "{name} semble endommagé ; laissé tel quel",
         "de": "{name} scheint beschädigt; unverändert gelassen",

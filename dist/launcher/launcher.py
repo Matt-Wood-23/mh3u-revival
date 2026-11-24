@@ -36,6 +36,53 @@ import threading
 import urllib.request
 from pathlib import Path
 
+# The launcher's text in the six languages the games use (launcher_i18n.py, keyed by the
+# English text). T() falls back to English, so a missing file or entry never breaks anything.
+try:
+    from launcher_i18n import LANGUAGES, STRINGS
+except ImportError:
+    LANGUAGES, STRINGS = (("en", "English"),), {}
+_lang = "en"
+
+
+def set_language(code):
+    """Switch T() to `code` (one of LANGUAGES); anything else means English."""
+    global _lang
+    _lang = code if code in dict(LANGUAGES) else "en"
+    return _lang
+
+
+def T(text, **fields):
+    """`text` in the current language, with its {fields} filled in."""
+    out = STRINGS.get(text, {}).get(_lang) or text
+    if not fields:
+        return out
+    try:
+        return out.format(**fields)
+    except (KeyError, IndexError, ValueError):       # a broken translation: use English
+        return text.format(**fields)
+
+
+def system_language():
+    """The PC's display language if the launcher has it, else English."""
+    code = ""
+    if os.name == "nt":
+        try:
+            import ctypes
+            primary = ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF
+            code = {0x09: "en", 0x0C: "fr", 0x07: "de", 0x10: "it", 0x0A: "es",
+                    0x11: "ja"}.get(primary, "")
+        except Exception:
+            code = ""
+    if not code:
+        import locale
+        try:
+            loc = locale.getlocale()[0] or os.environ.get("LANG", "")
+        except ValueError:
+            loc = os.environ.get("LANG", "")
+        code = (loc or "")[:2].lower()
+    return code if code in dict(LANGUAGES) else "en"
+
 # ---------------------------------------------------------------------------
 # Constants shared with the .bats / bundle layout
 # ---------------------------------------------------------------------------
@@ -430,10 +477,10 @@ def format_status(snap):
         p = int(snap.get("players", 0))
         r = int(snap.get("rooms", 0))
     except (TypeError, ValueError):
-        return "status unreadable"
-    hunters = "1 hunter" if p == 1 else f"{p} hunters"
-    rooms = "1 room" if r == 1 else f"{r} rooms"
-    return f"{hunters} online · {rooms}"
+        return T("status unreadable")
+    hunters = T("1 hunter") if p == 1 else T("{n} hunters", n=p)
+    rooms = T("1 room") if r == 1 else T("{n} rooms", n=r)
+    return T("{hunters} online · {rooms}", hunters=hunters, rooms=rooms)
 
 
 # ---------------------------------------------------------------------------
@@ -497,15 +544,16 @@ def check_event_record(name, rec, sha256):
     """The record if it's a valid official event quest matching its listed hash, else
     raise ValueError saying why."""
     if hashlib.sha256(rec).hexdigest() != sha256:
-        raise ValueError(f"{name}: checksum doesn't match the list")
+        raise ValueError(T("{name}: checksum doesn't match the list", name=name))
     no = quest_record_no(rec)
     if no is None:
-        raise ValueError(f"{name}: not a quest file")
+        raise ValueError(T("{name}: not a quest file", name=name))
     if not event_number_ok(no) or name != f"q_{no:05d}.quest":
-        raise ValueError(f"{name}: quest number {no} is outside {EVENT_NO_TEXT}")
+        raise ValueError(T("{name}: quest number {no} is outside {range}",
+                           name=name, no=no, range=EVENT_NO_TEXT))
     body = rec.rstrip(b"\0")
     if len(body) > PACK_DATA:
-        raise ValueError(f"{name}: too big for a quest slot")
+        raise ValueError(T("{name}: too big for a quest slot", name=name))
     return body
 
 
@@ -524,7 +572,7 @@ def load_event_quests(root, fetch=True, timeout=8, log=print):
             cache.mkdir(parents=True, exist_ok=True)
             (cache / "events.json").write_bytes(raw)
         except Exception as e:
-            log(f"[Events] Couldn't get the event quest list ({e}); using the saved copy.")
+            log(T("[Events] Couldn't get the event quest list ({err}); using the saved copy.", err=e))
     if listing is None:
         try:
             listing = parse_events((cache / "events.json").read_bytes())
@@ -539,12 +587,12 @@ def load_event_quests(root, fetch=True, timeout=8, log=print):
                 with urllib.request.urlopen(EVENTS_BASE + "/" + q["file"], timeout=timeout) as r:
                     rec = r.read(PACK_DATA + 1)
             except Exception as e:
-                log(f"[Events] Couldn't download {q['file']} ({e}).")
+                log(T("[Events] Couldn't download {file} ({err}).", file=q["file"], err=e))
                 continue
         try:
             body = check_event_record(q["file"], rec, q["sha256"])
         except ValueError as e:
-            log(f"[Events] Skipped {e}.")
+            log(T("[Events] Skipped {err}.", err=e))
             continue
         path.write_bytes(rec)
         quests[quest_record_no(body)] = body
@@ -585,7 +633,7 @@ def sync_event_packs(save_dir, quests, owned):
     for name in EVENT_PACKS:
         data = bytearray((save_dir / name).read_bytes())
         if len(data) < PACK_HEADER + PACK_SLOTS * PACK_SLOT:
-            return 0, 0, 0, [f"{name} looks damaged; left alone"]
+            return 0, 0, 0, [T("{name} looks damaged; left alone", name=name)]
         packs[name] = data
     notes = []
     added = updated = removed = 0
@@ -620,12 +668,13 @@ def sync_event_packs(save_dir, quests, owned):
                 theirs.add(quest_record_no(_slot(data, i)))
     for no in sorted(set(quests) - placed):
         if no in theirs:
-            notes.append(f"quest {no} is already in your packs (not added by the launcher); left alone")
+            notes.append(T("quest {no} is already in your packs (not added by the launcher); left alone",
+                          no=no))
             continue
         free = next(((n, i) for n in EVENT_PACKS for i in range(PACK_SLOTS)
                      if f"{n}/{i}" not in owned and not any(_slot(packs[n], i))), None)
         if free is None:
-            notes.append(f"no free event quest slot for quest {no}")
+            notes.append(T("no free event quest slot for quest {no}", no=no))
             continue
         name, i = free
         new = _slot_record(quests[no], no)
@@ -651,7 +700,7 @@ def install_event_quests(root, log=print, fetch=True):
     bundle. Never runs while Cemu is open (the game would overwrite the packs)."""
     root = Path(root)
     if is_running(CEMU_EXE):
-        log("[Events] Cemu is open; close it to update the event quests.")
+        log(T("[Events] Cemu is open; close it to update the event quests."))
         return
     saves = event_save_dirs(root)
     if not saves:
@@ -672,13 +721,14 @@ def install_event_quests(root, log=print, fetch=True):
         try:
             added, updated, removed, notes = sync_event_packs(save, quests, owned)
         except OSError as e:
-            log(f"[Events] Couldn't update the event quests in {key} ({e}).")
+            log(T("[Events] Couldn't update the event quests in {key} ({err}).", key=key, err=e))
             continue
         for n in notes:
-            log(f"[Events] Note: {n}.")
+            log(T("[Events] Note: {note}.", note=n))
         if added or updated or removed:
-            log(f"[Events] Event quests in save {save.name}: {added} added, {updated} updated, "
-                f"{removed} removed ({len(owned)} installed).")
+            log(T("[Events] Event quests in save {save}: {added} added, {updated} updated, "
+                  "{removed} removed ({n} installed).", save=save.name, added=added,
+                  updated=updated, removed=removed, n=len(owned)))
     try:
         state_path.write_text(json.dumps(state, indent=1), encoding="utf-8")
     except OSError:
@@ -811,7 +861,7 @@ def host_ip_choices():
         choices.append((f"LAN — {lan}", lan))
     if not choices:
         # No routable address detected — degenerate fallback (same-PC only).
-        choices.append(("This PC only — 127.0.0.1", "127.0.0.1"))
+        choices.append((T("This PC only — 127.0.0.1"), "127.0.0.1"))
     return choices
 
 
@@ -853,12 +903,13 @@ def run_join_flow(root, host_ip, launch=True, log=print, host_label=None):
     # 1) game-dump presence check
     gamedir = root / GAMEDIR_REL
     if not (gamedir / "code").exists():
-        log("[MH3U Online] No MH3U game found in this bundle yet.")
-        log("  Cemu will still open, but its game list stays empty until you add")
-        log("  YOUR own legal MH3U dump. Two ways:")
-        log(f"    1) copy your dump's code/content/meta folders into:")
-        log(f"         {gamedir}")
-        log("    2) or in Cemu: Options > General Settings > Game Paths > add its folder")
+        log(T("[MH3U Online] No MH3U game found in this bundle yet.\n"
+              "  Cemu will still open, but its game list stays empty until you add\n"
+              "  YOUR own legal MH3U dump. Two ways:\n"
+              "    1) copy your dump's code/content/meta folders into:\n"
+              "         {gamedir}\n"
+              "    2) or in Cemu: Options > General Settings > Game Paths > add its folder",
+              gamedir=gamedir))
 
     # 2) account mint / repair
     act_dir = root / ACTDIR_REL
@@ -873,34 +924,34 @@ def run_join_flow(root, host_ip, launch=True, log=print, host_label=None):
             acct.replace(bak)
         except OSError:
             pass
-        log("[MH3U Online] Your Cemu account has no online identity yet — setting one up...")
+        log(T("[MH3U Online] Your Cemu account has no online identity yet — setting one up..."))
     elif need == "new":
-        log("[MH3U Online] First run — creating your unique online identity...")
+        log(T("[MH3U Online] First run — creating your unique online identity..."))
     if need:
         path, pid_int, pid_hex = write_account(str(act_dir))
-        log(f"[MH3U Online] Identity ready (NEX PID {pid_int}).")
+        log(T("[MH3U Online] Identity ready (NEX PID {pid}).", pid=pid_int))
 
     # 3) persist host IP
     ip = (host_ip or "").strip()
     if ip and ip != PLACEHOLDER:
         write_host_ip(root / SRVFILE_REL, ip)
-        log(f"[MH3U Online] Saved host = {host_label or ip}")
+        log(T("[MH3U Online] Saved host = {host}", host=host_label or ip))
     else:
-        log("[MH3U Online] WARNING: no host IP set — enter the host's IP and Save first.")
+        log(T("[MH3U Online] WARNING: no host IP set — enter the host's IP and Save first."))
 
     # 4) launch Cemu
     if not launch or os.environ.get("MH3U_NOLAUNCH") == "1":
-        log("[MH3U Online] (launch suppressed)")
+        log(T("[MH3U Online] (launch suppressed)"))
         return True
     cemu = root / CEMU_EXE
     if not cemu.exists():
-        log(f"[MH3U Online] ERROR: {CEMU_EXE} not found next to the launcher.")
+        log(T("[MH3U Online] ERROR: {exe} not found next to the launcher.", exe=CEMU_EXE))
         return False
-    log(f"[MH3U Online] Host = {ip} — launching Cemu...")
+    log(T("[MH3U Online] Host = {ip} — launching Cemu...", ip=ip))
     try:
         subprocess.Popen([str(cemu)], cwd=str(root))
     except OSError as e:
-        log(f"[MH3U Online] ERROR launching Cemu: {e}")
+        log(T("[MH3U Online] ERROR launching Cemu: {err}", err=e))
         return False
     return True
 
@@ -987,7 +1038,7 @@ def apply_update_zip(zip_path, root, log=print):
                 with zf.open(m) as src, open(target, "wb") as dst:
                     dst.write(src.read())
             except PermissionError:
-                log(f"  skip (in use): {m}")
+                log(T("  skip (in use): {m}", m=m))
     return deferred_launcher
 
 
@@ -1335,6 +1386,43 @@ def _selftest():
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
+    print("== translations ==")
+    import ast
+    import string
+
+    def fields(text):
+        return sorted(f for _, f, _, _ in string.Formatter().parse(text) if f)
+    gaps, bad = [], []
+    for en, tr in STRINGS.items():
+        for code, _ in LANGUAGES[1:]:
+            if not tr.get(code):
+                gaps.append(f"{code} {en[:40]!r}")
+            elif fields(tr[code]) != fields(en):
+                bad.append(f"{code} {en[:40]!r}")
+    check(len(LANGUAGES) == 6 and STRINGS, f"{len(LANGUAGES)} languages, {len(STRINGS)} texts")
+    check(not gaps, "every text has all five translations" + (": missing " + "; ".join(gaps[:5]) if gaps else ""))
+    check(not bad, "translations keep the English {fields}" + (": " + "; ".join(bad[:5]) if bad else ""))
+    src = Path(__file__)
+    if src.suffix == ".py" and src.exists():          # source run (the frozen exe has no .py)
+        calls = [n for n in ast.walk(ast.parse(src.read_text(encoding="utf-8")))
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "T"]
+        check(all(n.args and isinstance(n.args[0], ast.Constant) for n in calls),
+              f"all {len(calls)} T() calls pass literal English text")
+        used = {n.args[0].value for n in calls if n.args and isinstance(n.args[0], ast.Constant)}
+        missing, unused = sorted(used - set(STRINGS)), sorted(set(STRINGS) - used)
+        check(not missing, "every T() text is in launcher_i18n.py"
+              + (": " + "; ".join(repr(m[:40]) for m in missing[:5]) if missing else ""))
+        check(not unused, "launcher_i18n.py has no unused texts"
+              + (": " + "; ".join(repr(u[:40]) for u in unused[:5]) if unused else ""))
+    before = _lang
+    set_language("ja")
+    check(format_status({"players": 2, "rooms": 1}) == "オンライン 2人・1部屋", "Japanese status line")
+    check(T("{n} rooms", n=3) == "3部屋", "T() fills fields in the translation")
+    set_language("xx")
+    check(_lang == "en", "unknown language falls back to English")
+    set_language(before)
+    check(system_language() in dict(LANGUAGES), f"system language -> {system_language()}")
+
     print()
     print("SELFTEST", "PASSED" if ok else "FAILED")
     return 0 if ok else 1
@@ -1344,16 +1432,33 @@ def _selftest():
 # GUI  (tkinter — imported lazily so --selftest works without a display)
 # ===========================================================================
 
-def _run_gui(smoke=False):
+def _run_gui(smoke=False, carry=None):
     # smoke=True builds the whole window (every widget + the update thread) then
     # tears it down after ~0.4s WITHOUT blocking — used by `--smoke` to prove the
     # frozen exe's bundled tkinter and widget construction work headlessly.
+    # Picking another language closes the window and returns `carry` (the language, the
+    # open tab and the typed IP) so main() builds it again in that language.
     import tkinter as tk
     from tkinter import ttk, scrolledtext, messagebox
 
     ROOT_DIR = bundle_root()
+    carry = carry or {}
+    restart = {}
+    busy = {"server": lambda: False}          # the Host tab says when its server runs
+    settings_path = os.path.join(ROOT_DIR, LAUNCHER_SETTINGS_REL)
+    jsettings = read_launcher_settings(settings_path)
+    lang = set_language(carry.get("language") or jsettings.get("language") or system_language())
+    UI_FONT = "Yu Gothic UI" if lang == "ja" else "Segoe UI"
 
     app = tk.Tk()
+    if lang == "ja":                            # Windows' default UI font spaces kana out
+        from tkinter import font as tkfont
+        for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont",
+                     "TkCaptionFont", "TkSmallCaptionFont", "TkIconFont", "TkTooltipFont"):
+            try:
+                tkfont.nametofont(name).configure(family=UI_FONT)
+            except tk.TclError:
+                pass
     app.title(APP_TITLE)
     app.geometry("640x520")
     app.minsize(560, 440)
@@ -1364,16 +1469,21 @@ def _run_gui(smoke=False):
     # --- top status strip -------------------------------------------------
     top = ttk.Frame(app, padding=(12, 8))
     top.pack(fill="x")
-    ttk.Label(top, text=APP_TITLE, font=("Segoe UI", 16, "bold")).pack(side="left")
+    ttk.Label(top, text=APP_TITLE, font=(UI_FONT, 16, "bold")).pack(side="left")
     local_ver = read_version(ROOT_DIR)
-    ver_var = tk.StringVar(value=f"version {local_ver}")
+    ver_var = tk.StringVar(value=T("version {v}", v=local_ver))
     ttk.Label(top, textvariable=ver_var).pack(side="right")
+    lang_codes = [c for c, _ in LANGUAGES]
+    lang_box = ttk.Combobox(top, values=[n for _, n in LANGUAGES], state="readonly", width=9)
+    lang_box.current(lang_codes.index(lang))
+    lang_box.pack(side="right", padx=(0, 12))
+    ttk.Label(top, text=T("Language:")).pack(side="right", padx=(0, 4))
 
     update_bar = ttk.Frame(app, padding=(12, 0))
-    update_var = tk.StringVar(value="checking for updates…")
+    update_var = tk.StringVar(value=T("checking for updates…"))
     update_lbl = ttk.Label(update_bar, textvariable=update_var, foreground="#555")
     update_lbl.pack(side="left")
-    update_btn = ttk.Button(update_bar, text="Update now")
+    update_btn = ttk.Button(update_bar, text=T("Update now"))
     # packed later only if an update exists
     update_bar.pack(fill="x")
 
@@ -1383,17 +1493,17 @@ def _run_gui(smoke=False):
 
     # ---------------- HOME ----------------
     home = ttk.Frame(nb, padding=20)
-    nb.add(home, text="Home")
-    ttk.Label(home, text="What do you want to do?",
-              font=("Segoe UI", 12)).pack(pady=(10, 20))
-    btn_join = ttk.Button(home, text="JOIN A GAME", width=28,
+    nb.add(home, text=T("Home"))
+    ttk.Label(home, text=T("What do you want to do?"),
+              font=(UI_FONT, 12)).pack(pady=(10, 20))
+    btn_join = ttk.Button(home, text=T("JOIN A GAME"), width=28,
                           command=lambda: nb.select(join))
     btn_join.pack(pady=6, ipady=8)
-    btn_host = ttk.Button(home, text="HOST A SERVER", width=28,
+    btn_host = ttk.Button(home, text=T("HOST A SERVER"), width=28,
                           command=lambda: nb.select(host))
     btn_host.pack(pady=6, ipady=8)
-    ttk.Label(home, text="JOIN = play on the official server or a friend's.\n"
-                         "HOST = run the server for your friends.",
+    ttk.Label(home, text=T("JOIN = play on the official server or a friend's.\n"
+                           "HOST = run the server for your friends."),
               foreground="#555", justify="center").pack(pady=(20, 8))
     home_status_var = tk.StringVar(value="")
     ttk.Label(home, textvariable=home_status_var, foreground="#555",
@@ -1402,12 +1512,13 @@ def _run_gui(smoke=False):
     home_news_var = tk.StringVar(value="")
     ttk.Label(home, textvariable=home_news_var, foreground=NEWS_FG, wraplength=520,
               justify="center").pack(pady=(8, 0))
+    if lang != "en":
+        ttk.Label(home, text=T("Translations other than English may be inaccurate."),
+                  foreground="#999", justify="center").pack(side="bottom")
 
     # ---------------- JOIN ----------------
     join = ttk.Frame(nb, padding=16)
-    nb.add(join, text="Join")
-    settings_path = os.path.join(ROOT_DIR, LAUNCHER_SETTINGS_REL)
-    jsettings = read_launcher_settings(settings_path)
+    nb.add(join, text=T("Join"))
     saved_ip = read_host_ip(os.path.join(ROOT_DIR, SRVFILE_REL))
     # mh3u_server.txt holds the official server's IP after an official launch, so the
     # friend's-IP box only falls back to it for installs that predate the choice.
@@ -1415,9 +1526,11 @@ def _run_gui(smoke=False):
         start_custom_ip = jsettings.get("custom_ip", "")
     else:
         start_custom_ip = jsettings.get("custom_ip") or saved_ip
+    if carry.get("ip") is not None:             # typed before switching languages
+        start_custom_ip = carry["ip"]
 
-    ttk.Label(join, text="Where do you want to play?",
-              font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0, 4))
+    ttk.Label(join, text=T("Where do you want to play?"),
+              font=(UI_FONT, 11, "bold")).pack(anchor="w", pady=(0, 4))
     choice_var = tk.StringVar(value="custom")
     jstate = {"servers": [], "touched": False, "status": {}}
 
@@ -1426,12 +1539,12 @@ def _run_gui(smoke=False):
 
     official_frame = ttk.Frame(join)            # filled in once servers.json is loaded
     official_frame.pack(fill="x", anchor="w")
-    ttk.Label(official_frame, text="Official server: checking…",
+    ttk.Label(official_frame, text=T("Official server: checking…"),
               foreground="#555").pack(anchor="w")
 
     custom_row = ttk.Frame(join)
     custom_row.pack(fill="x", anchor="w", pady=(2, 0))
-    ttk.Radiobutton(custom_row, text="A friend's server, IP:", variable=choice_var,
+    ttk.Radiobutton(custom_row, text=T("A friend's server, IP:"), variable=choice_var,
                     value="custom", command=touched).pack(side="left")
     ip_var = tk.StringVar(value=start_custom_ip)
     ip_entry = ttk.Entry(custom_row, textvariable=ip_var, width=24)
@@ -1441,20 +1554,20 @@ def _run_gui(smoke=False):
         choice_var.set("custom")
         touched()
     ip_entry.bind("<FocusIn>", ip_focus)
-    ttk.Label(join, text="Ask the host for their Tailscale (100.x), Radmin (26.x), "
-                         "LAN or public IP.", foreground="#555").pack(anchor="w", padx=(22, 0))
+    ttk.Label(join, text=T("Ask the host for their Tailscale (100.x), Radmin (26.x), "
+                           "LAN or public IP."), foreground="#555").pack(anchor="w", padx=(22, 0))
     join_news_var = tk.StringVar(value="")
     ttk.Label(join, textvariable=join_news_var, foreground=NEWS_FG, wraplength=560,
               justify="left").pack(anchor="w", pady=(6, 0))
     events_var = tk.BooleanVar(value=jsettings.get("events", True) is not False)
     ttk.Checkbutton(join, variable=events_var,
-                    text="Add the official event quests to my game (your own quests "
-                         "are never changed)").pack(anchor="w", pady=(6, 0))
+                    text=T("Add the official event quests to my game (your own quests "
+                           "are never changed)")).pack(anchor="w", pady=(6, 0))
     join_btns = ttk.Frame(join)
     join_btns.pack(anchor="w", pady=10)
-    join_play = ttk.Button(join_btns, text="Save + Play")
+    join_play = ttk.Button(join_btns, text=T("Save + Play"))
     join_play.pack(side="left")
-    join_test = ttk.Button(join_btns, text="Test connection")
+    join_test = ttk.Button(join_btns, text=T("Test connection"))
     join_test.pack(side="left", padx=6)
     join_log = scrolledtext.ScrolledText(join, height=10, wrap="word", state="disabled")
     join_log.pack(fill="both", expand=True)
@@ -1465,18 +1578,25 @@ def _run_gui(smoke=False):
         join_log.see("end")
         join_log.configure(state="disabled")
 
+    def post(fn, *args):
+        """Run fn on the GUI thread; dropped once the window is gone (closed or rebuilt)."""
+        try:
+            app.after(0, fn, *args)
+        except Exception:
+            pass
+
     def chosen_server(choice, log):
         """The picked official server and its IP, or (None, None) after logging why."""
         sid = choice.split(":", 1)[1]
         srv = next((s for s in jstate["servers"] if s["id"] == sid), None)
         if srv is None:
-            log("[MH3U Online] That server isn't in the list anymore; pick one again.")
+            log(T("[MH3U Online] That server isn't in the list anymore; pick one again."))
             return None, None
         try:
             ip = resolve_host(srv["host"])
         except OSError as e:
-            log(f"[MH3U Online] ERROR: couldn't look up {srv['name']} ({e}). "
-                "Check your internet connection.")
+            log(T("[MH3U Online] ERROR: couldn't look up {name} ({err}). "
+                  "Check your internet connection.", name=srv["name"], err=e))
             return None, None
         return srv, ip
 
@@ -1486,7 +1606,7 @@ def _run_gui(smoke=False):
         join_test.configure(state="disabled")
 
         def worker():
-            log = lambda s: app.after(0, jlog, s)  # noqa: E731
+            log = lambda s: post(jlog, s)  # noqa: E731
             try:
                 if choice.startswith("official:"):
                     srv, ip = chosen_server(choice, log)
@@ -1494,31 +1614,32 @@ def _run_gui(smoke=False):
                         return
                     name = srv["name"]
                 else:
-                    srv, ip, name = None, custom_ip, "your friend's server"
+                    srv, ip, name = None, custom_ip, T("your friend's server")
                     if not ip or ip == PLACEHOLDER:
-                        log("[Test] Type your friend's IP first.")
+                        log(T("[Test] Type your friend's IP first."))
                         return
-                log(f"[Test] Asking {name} ({ip}) on UDP {NATCHECK_PORT} ...")
+                log(T("[Test] Asking {name} ({ip}) on UDP {port} ...", name=name, ip=ip, port=NATCHECK_PORT))
                 ok, info = natcheck_probe(ip)
                 if ok:
-                    log(f"[Test] OK: the server answered and sees you at {info}. "
-                        "Your connection to it works.")
+                    log(T("[Test] OK: the server answered and sees you at {addr}. "
+                          "Your connection to it works.", addr=info))
                 elif srv is not None:
-                    log(f"[Test] FAILED ({info}). Either the server is down, or something "
-                        "on your side blocks UDP: a firewall, a VPN, or a school/work "
-                        "network.")
+                    log(T("[Test] FAILED ({info}). Either the server is down, or something "
+                          "on your side blocks UDP: a firewall, a VPN, or a school/work "
+                          "network.", info=info))
                 else:
-                    log(f"[Test] FAILED ({info}). Check that your friend's server is "
-                        f"running, that their router forwards UDP 1223, 1224 and "
-                        f"{NATCHECK_PORT} to their PC, and their firewall allows them.")
+                    log(T("[Test] FAILED ({info}). Check that your friend's server is "
+                          "running, that their router forwards UDP 1223, 1224 and "
+                          "{port} to their PC, and their firewall allows them.",
+                          info=info, port=NATCHECK_PORT))
                 if srv is not None and srv["status_port"]:
                     try:
                         snap = fetch_status(srv["host"], srv["status_port"])
-                        log(f"[Test] Server status: {format_status(snap)}")
+                        log(T("[Test] Server status: {status}", status=format_status(snap)))
                     except Exception as e:
-                        log(f"[Test] Status page didn't answer ({e}).")
+                        log(T("[Test] Status page didn't answer ({err}).", err=e))
             finally:
-                app.after(0, lambda: join_test.configure(state="normal"))
+                post(lambda: join_test.configure(state="normal"))
         threading.Thread(target=worker, daemon=True).start()
 
     join_test.configure(command=do_test)
@@ -1529,7 +1650,7 @@ def _run_gui(smoke=False):
         join_play.configure(state="disabled")
 
         def worker():
-            log = lambda s: app.after(0, jlog, s)  # noqa: E731
+            log = lambda s: post(jlog, s)  # noqa: E731
             try:
                 if choice.startswith("official:"):
                     srv, ip = chosen_server(choice, log)
@@ -1550,10 +1671,10 @@ def _run_gui(smoke=False):
                     try:
                         install_event_quests(ROOT_DIR, log=log)
                     except Exception as e:          # never let this block playing
-                        log(f"[Events] Skipped the event quests ({e}).")
+                        log(T("[Events] Skipped the event quests ({err}).", err=e))
                 run_join_flow(ROOT_DIR, ip, launch=True, log=log, host_label=label)
             finally:
-                app.after(0, lambda: join_play.configure(state="normal"))
+                post(lambda: join_play.configure(state="normal"))
         threading.Thread(target=worker, daemon=True).start()
 
     join_play.configure(command=do_join)
@@ -1577,8 +1698,8 @@ def _run_gui(smoke=False):
         for w in official_frame.winfo_children():
             w.destroy()
         if not servers:
-            msg = ("Official server: not available yet." if source != "none" else
-                   "Official server: couldn't load the server list (offline?).")
+            msg = (T("Official server: not available yet.") if source != "none" else
+                   T("Official server: couldn't load the server list (offline?)."))
             ttk.Label(official_frame, text=msg, foreground="#555").pack(anchor="w")
         for s in servers:
             row = ttk.Frame(official_frame)
@@ -1586,7 +1707,7 @@ def _run_gui(smoke=False):
             ttk.Radiobutton(row, text=s["name"], variable=choice_var,
                             value="official:" + s["id"], command=touched).pack(side="left")
             dot = ttk.Label(row, text="●", foreground=IDLE_FG)
-            text = tk.StringVar(value="checking…" if s["status_port"] else "")
+            text = tk.StringVar(value=T("checking…") if s["status_port"] else "")
             if s["status_port"]:
                 dot.pack(side="left", padx=(8, 2))
                 ttk.Label(row, textvariable=text, foreground="#555").pack(side="left")
@@ -1596,7 +1717,7 @@ def _run_gui(smoke=False):
         join_news_var.set(data["news"])
         home_news_var.set(data["news"])
         if servers and not servers[0]["status_port"]:
-            home_status_var.set(f"Official server: {servers[0]['name']}")
+            home_status_var.set(T("Official server: {name}", name=servers[0]["name"]))
 
     def servers_worker():
         data, source = load_servers(ROOT_DIR)
@@ -1611,7 +1732,7 @@ def _run_gui(smoke=False):
                 try:
                     text, color = format_status(fetch_status(s["host"], s["status_port"])), OK_FG
                 except Exception:
-                    text, color = "not responding", BAD_FG
+                    text, color = T("not responding"), BAD_FG
                 try:
                     app.after(0, set_status, s["id"], text, color)
                 except Exception:
@@ -1622,26 +1743,26 @@ def _run_gui(smoke=False):
 
     # ---------------- HOST ----------------
     host = ttk.Frame(nb, padding=16)
-    nb.add(host, text="Host")
+    nb.add(host, text=T("Host"))
 
     server_kind = server_available(ROOT_DIR)
     if server_kind is None:
-        ttk.Label(host, text="server.exe is missing from this folder.",
-                  font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(4, 2))
-        ttk.Label(host, text="The all-in-one bundle ships server.exe next to this "
-                             "launcher.\nIf it's gone (antivirus quarantine or a partial "
-                             "unzip), re-download\nthe latest bundle from Releases and "
-                             "extract it fully.", foreground="#555",
+        ttk.Label(host, text=T("server.exe is missing from this folder."),
+                  font=(UI_FONT, 11, "bold")).pack(anchor="w", pady=(4, 2))
+        ttk.Label(host, text=T("The all-in-one bundle ships server.exe next to this "
+                               "launcher.\nIf it's gone (antivirus quarantine or a partial "
+                               "unzip), re-download\nthe latest bundle from Releases and "
+                               "extract it fully."), foreground="#555",
                   justify="left").pack(anchor="w")
         def open_releases():
             try:
                 os.startfile(RELEASES_PAGE)  # noqa
             except Exception:
                 pass
-        ttk.Button(host, text="Open Releases page", command=open_releases).pack(anchor="w", pady=8)
+        ttk.Button(host, text=T("Open Releases page"), command=open_releases).pack(anchor="w", pady=8)
     else:
-        ttk.Label(host, text="Which IP will friends connect to?",
-                  font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        ttk.Label(host, text=T("Which IP will friends connect to?"),
+                  font=(UI_FONT, 11, "bold")).pack(anchor="w")
         ipframe = ttk.Frame(host)
         ipframe.pack(fill="x", pady=4)
         sel_ip = tk.StringVar()
@@ -1653,19 +1774,19 @@ def _run_gui(smoke=False):
                 sel_ip.set(ip)  # preselect top-priority option
         override_row = ttk.Frame(host)
         override_row.pack(fill="x", pady=(4, 8))
-        ttk.Label(override_row, text="or type any IP:").pack(side="left")
+        ttk.Label(override_row, text=T("or type any IP:")).pack(side="left")
         override_var = tk.StringVar()
         ttk.Entry(override_row, textvariable=override_var, width=22).pack(side="left", padx=6)
 
         relay_var = tk.BooleanVar(value=False)
         relay_row = ttk.Frame(host)
         relay_row.pack(fill="x", pady=(0, 8))
-        ttk.Checkbutton(relay_row, text="Relay hunt traffic through this PC (experimental)",
+        ttk.Checkbutton(relay_row, text=T("Relay hunt traffic through this PC (experimental)"),
                         variable=relay_var).pack(anchor="w")
         ttk.Label(relay_row,
-                  text="Friends won't need port forwarding, including on cellular / CGNAT,\n"
-                       "and players won't see each other's IP addresses. All hunt traffic\n"
-                       "uses your upload, and UDP 27100-27387 must be open too.",
+                  text=T("Friends won't need port forwarding, including on cellular / CGNAT,\n"
+                         "and players won't see each other's IP addresses. All hunt traffic\n"
+                         "uses your upload, and UDP 27100-27387 must be open too."),
                   foreground="#555", justify="left").pack(anchor="w", padx=(20, 0))
 
         banner_var = tk.StringVar(value="")
@@ -1675,17 +1796,18 @@ def _run_gui(smoke=False):
 
         btnrow = ttk.Frame(host)
         btnrow.pack(fill="x")
-        start_btn = ttk.Button(btnrow, text="Start Server")
+        start_btn = ttk.Button(btnrow, text=T("Start Server"))
         start_btn.pack(side="left")
-        stop_btn = ttk.Button(btnrow, text="Stop Server", state="disabled")
+        stop_btn = ttk.Button(btnrow, text=T("Stop Server"), state="disabled")
         stop_btn.pack(side="left", padx=6)
-        hostplay_btn = ttk.Button(btnrow, text="Host + Play")
+        hostplay_btn = ttk.Button(btnrow, text=T("Host + Play"))
         hostplay_btn.pack(side="left", padx=6)
 
         host_log = scrolledtext.ScrolledText(host, height=12, wrap="word", state="disabled")
         host_log.pack(fill="both", expand=True, pady=(8, 0))
 
         proc_holder = {"proc": None, "reader": None}
+        busy["server"] = lambda: proc_holder["proc"] is not None
 
         def hlog(line):
             host_log.configure(state="normal")
@@ -1698,12 +1820,12 @@ def _run_gui(smoke=False):
 
         def start_server(ip=None):
             if proc_holder["proc"] is not None:
-                hlog("[Host] Server already running.")
+                hlog(T("[Host] Server already running."))
                 return
             ip = ip or chosen_ip()
             cmd, kind = build_server_command(ROOT_DIR)
             if not cmd:
-                hlog("[Host] ERROR: no server.exe or server.py found.")
+                hlog(T("[Host] ERROR: no server.exe or server.py found."))
                 return
             env = dict(os.environ)
             env["MH3U_ADVERTISE"] = ip
@@ -1712,11 +1834,14 @@ def _run_gui(smoke=False):
                 # Deliberately not setting MH3U_RELAY_PROBES: "host" is the correct
                 # default and "all" breaks 3-player rooms. See docs/GUEST_PAIR_PROBLEM.md.
                 env["MH3U_RELAY"] = "force"
-            banner_var.set(f"Friends connect to:  {ip}")
+            banner_var.set(T("Friends connect to:  {ip}", ip=ip))
             if not banner.winfo_ismapped():
                 banner.pack(fill="x", pady=6, before=btnrow)
-            hlog(f"[Host] Starting server ({kind}), advertising {ip}"
-                 f"{', relay ON' if relay_on else ''} ...")
+            if relay_on:
+                hlog(T("[Host] Starting server ({kind}), advertising {ip}, relay ON ...",
+                       kind=kind, ip=ip))
+            else:
+                hlog(T("[Host] Starting server ({kind}), advertising {ip} ...", kind=kind, ip=ip))
             try:
                 flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
                 proc = subprocess.Popen(
@@ -1725,7 +1850,7 @@ def _run_gui(smoke=False):
                     stdin=subprocess.DEVNULL, text=True, bufsize=1,
                     creationflags=flags)
             except OSError as e:
-                hlog(f"[Host] ERROR starting server: {e}")
+                hlog(T("[Host] ERROR starting server: {err}", err=e))
                 return
             proc_holder["proc"] = proc
             start_btn.configure(state="disabled")
@@ -1745,7 +1870,7 @@ def _run_gui(smoke=False):
             t.start()
 
         def on_server_exit():
-            hlog("[Host] Server stopped.")
+            hlog(T("[Host] Server stopped."))
             proc_holder["proc"] = None
             start_btn.configure(state="normal")
             stop_btn.configure(state="disabled")
@@ -1783,11 +1908,11 @@ def _run_gui(smoke=False):
             proc = proc_holder["proc"]
             if proc is None:
                 return
-            hlog("[Host] Stopping server ...")
+            hlog(T("[Host] Stopping server ..."))
             try:
                 _kill_proc_tree(proc)
             except Exception as e:
-                hlog(f"[Host] stop error: {e}")
+                hlog(T("[Host] stop error: {err}", err=e))
 
         def host_and_play():
             # Use the SAME picked IP for advertise and for our own Cemu's connect.
@@ -1818,13 +1943,13 @@ def _run_gui(smoke=False):
             return
         if is_running(CEMU_EXE) or is_running(SERVER_EXE):
             messagebox.showwarning(
-                APP_TITLE, "Close Cemu and the server before updating.")
+                APP_TITLE, T("Close Cemu and the server before updating."))
             return
         update_btn.configure(state="disabled")
         win = tk.Toplevel(app)
-        win.title("Updating")
+        win.title(T("Updating"))
         win.geometry("380x120")
-        ttk.Label(win, text=f"Downloading update {state['remote_tag']} …").pack(pady=8)
+        ttk.Label(win, text=T("Downloading update {tag} …", tag=state["remote_tag"])).pack(pady=8)
         pb = ttk.Progressbar(win, length=340, mode="determinate")
         pb.pack(pady=4)
         pstat = tk.StringVar(value="")
@@ -1859,21 +1984,21 @@ def _run_gui(smoke=False):
                                      if getattr(sys, "frozen", False) else "MH3U_Online.exe")
                     bat = write_self_replace_bat(ROOT_DIR, launcher_name)
                     app.after(0, lambda: (messagebox.showinfo(
-                        APP_TITLE, "Update ready — the launcher will restart."),
+                        APP_TITLE, T("Update ready — the launcher will restart.")),
                         subprocess.Popen(["cmd", "/c", str(bat)],
                                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)),
                         app.destroy()))
                 else:
                     app.after(0, lambda: (messagebox.showinfo(
-                        APP_TITLE, f"Updated to {state['remote_tag']}."),
-                        ver_var.set(f"version {state['remote_tag']}"),
-                        update_var.set("up to date"),
+                        APP_TITLE, T("Updated to {tag}.", tag=state["remote_tag"])),
+                        ver_var.set(T("version {v}", v=state["remote_tag"])),
+                        update_var.set(T("up to date")),
                         win.destroy()))
             except Exception as e:
                 # Python unbinds `e` when this block ends, before the callback runs.
                 err = str(e)
                 app.after(0, lambda: (messagebox.showerror(
-                    APP_TITLE, f"Update failed: {err}"), win.destroy(),
+                    APP_TITLE, T("Update failed: {err}", err=err)), win.destroy(),
                     update_btn.configure(state="normal")))
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1883,7 +2008,7 @@ def _run_gui(smoke=False):
         try:
             tag, assets = fetch_latest_release()
         except Exception:
-            app.after(0, lambda: update_var.set("update check failed — offline?"))
+            app.after(0, lambda: update_var.set(T("update check failed — offline?")))
             return
         state["remote_tag"] = tag
         state["assets"] = assets
@@ -1892,26 +2017,55 @@ def _run_gui(smoke=False):
 
         def show():
             if newer:
-                update_var.set(f"Update {tag} available")
+                update_var.set(T("Update {tag} available", tag=tag))
                 update_btn.pack(side="left", padx=8)
             else:
-                update_var.set("up to date" if local_ver != "unknown"
-                               else f"latest is {tag}")
+                update_var.set(T("up to date") if local_ver != "unknown"
+                               else T("latest is {tag}", tag=tag))
         app.after(0, show)
 
     threading.Thread(target=check_updates, daemon=True).start()
 
+    # --- language picker: save the choice, then rebuild the window in it ----
+    def on_language(_e=None):
+        code = lang_codes[lang_box.current()]
+        if code == lang:
+            return
+        if busy["server"]():
+            messagebox.showwarning(APP_TITLE, T("Stop the server before changing the language."))
+            lang_box.current(lang_codes.index(lang))
+            return
+        settings = dict(read_launcher_settings(settings_path))
+        settings["language"] = code
+        try:
+            write_launcher_settings(settings_path, settings)
+        except OSError:
+            pass
+        restart["carry"] = {"language": code, "tab": nb.index("current"), "ip": ip_var.get()}
+        app.destroy()
+
+    lang_box.bind("<<ComboboxSelected>>", on_language)
+    if carry.get("tab") is not None:
+        try:
+            nb.select(carry["tab"])
+        except tk.TclError:
+            pass
+
     if smoke:
         app.after(400, app.destroy)         # construct, settle, auto-close
     app.mainloop()
+    return restart.get("carry")
 
 
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     if "--selftest" in argv:
         return _selftest()
-    _run_gui(smoke="--smoke" in argv)
-    return 0
+    carry = None
+    while True:                             # built again after a language change
+        carry = _run_gui(smoke="--smoke" in argv, carry=carry)
+        if not carry:
+            return 0
 
 
 if __name__ == "__main__":

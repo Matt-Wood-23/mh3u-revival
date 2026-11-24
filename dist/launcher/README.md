@@ -43,6 +43,21 @@ showing the bundle version and update state.
 
 All subprocess/network work runs on background threads; the UI never freezes.
 
+## Languages
+
+The launcher speaks the six languages the games use: English, French, German, Italian,
+Spanish and Japanese. It starts in the PC's display language when it has it (English
+otherwise), and the **Language** picker in the top bar switches it; the choice is saved in
+`portable\mh3u_launcher.json`. Switching rebuilds the window and keeps the open tab and a
+typed IP; it's refused while the Host tab's server is running.
+
+**Translations other than English are machine-made and may be inaccurate**; the Home tab
+says so in the chosen language. All the text lives in `launcher_i18n.py`, one entry per
+English sentence. To fix a translation, edit it there and keep every `{word}` in braces
+exactly as it is. `python launcher.py --selftest` reports a missing translation, a changed
+`{word}`, or a launcher sentence with no entry. The server list's names and news line come
+from `servers.json` and are shown as written.
+
 ## Official servers (`servers.json`)
 
 The Join tab offers the official server(s) next to "A friend's server". The list comes

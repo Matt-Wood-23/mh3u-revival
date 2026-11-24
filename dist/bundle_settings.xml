@@ -9,7 +9,9 @@
     <console_language>1</console_language>
     <GamePaths/>
     <GameCache/>
-    <GraphicPack/>
+    <GraphicPack>
+        <Entry filename="graphicPacks/MH3U_EventQuestFix/rules.txt"/>
+    </GraphicPack>
     <Graphic>
         <api>1</api>
         <device></device>

@@ -1,0 +1,6 @@
+[Definition]
+titleIds = 0005000010104d00,0005000010118300,0005000010117200
+name = "Cross-Version Event Quest Fix"
+path = "Monster Hunter 3 Ultimate/Mods/Cross-Version Event Quest Fix"
+description = "Lets Japanese and US/EU players join each other's event quests without crashing. Western quests store each text in five languages and Japanese quests store one, so each game misread the other's quest and crashed. On US/EU games, quests hosted by a Japanese player show kana with * in place of kanji, or an English name for a few of them. Every player needs it: it protects the player who has it. JP v96, US v32 and EU v32 (unmodified EU files only)."
+version = 7

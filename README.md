@@ -65,11 +65,25 @@ Want to run the server from source, or change it? See
 
 Optional extras that work alongside online play.
 
-- **60 FPS fix** (Cemu graphic pack, in this repo): caps MH3U at 30, 45 or 60 fps using the
-  game's own frame limiter, and fixes what runs at the wrong speed above 30: camera turning,
-  lance charge stamina, buff icons, the hammer golf swing and Alatreon's running turn. US and
-  EU tested, JP not yet. Each player chooses for themselves.
+- **Event quests in the launcher**: **Save + Play** adds the official event quests from
+  [events/](events/README.md), plus the 28 event quests and 10 Arena Challenge Quests Capcom
+  used to offer as downloads. Those 38 are copied from your own game's files, so nothing from
+  the game is shipped and no download server is needed. US and EU games.
+- **Cross-version event quest fix** (Cemu graphic pack, on in the bundle): players on the US,
+  EU and JP games can take on each other's event quests in one room. Without it, a guest on a
+  different version from the host crashes on the host's event quest. Each Cemu player in a
+  mixed room needs it; a real Wii U can't run it. The launcher also fills in the quest names
+  from your own game files. Standalone copy: `MH3U_EventQuestFix.zip` on the
+  [latest release](https://github.com/Matt-Wood-23/mh3u-revival/releases/latest).
+- **FPS Normalization**, the 60 FPS fix (Cemu graphic pack, formerly FPS Cap): caps MH3U at
+  30, 45 or 60 fps using the game's own frame limiter, and fixes what runs at the wrong speed
+  above 30: camera turning, lance charge stamina, buff icons, the hammer golf swing and
+  Alatreon's running turn. US, EU and JP tested. Each player chooses for themselves.
   [docs/FPS_FIX.md](docs/FPS_FIX.md).
+- **Cemu Enhanced** (optional, experimental): the bundle's Cemu plus save states, pause,
+  cheats, screen layouts and a controller-first Game Mode. A drop-in replacement for the
+  bundle's `Cemu_release.exe`; save states and pause are blocked while you're online.
+  [docs/PLAYING.md](docs/PLAYING.md#cemu-enhanced-optional-experimental).
 - **[MH3U Quest Studio](https://github.com/Matt-Wood-23/mh3u-quest-studio)**: a quest editor
   for monsters, difficulty, rewards, text and more, which can also create new event quests.
   Online, **event quests come from the host**, so only the host needs them. **Base-game quest

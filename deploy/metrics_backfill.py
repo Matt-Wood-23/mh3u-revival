@@ -178,6 +178,16 @@ def replay(lines, rec, until, hall_label):
     return used, last_t
 
 
+def geoip_path(given, metrics_dir):
+    """--geoip, else the server's default, else <state dir>/geoip/geoip.bin next to the
+    metrics folder: run by hand, the backfill doesn't get the service's state directory."""
+    if given:
+        return Path(given)
+    if geoip.PATH.exists():
+        return geoip.PATH
+    return Path(metrics_dir).resolve().parent / "geoip" / "geoip.bin"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--dir", required=True, help="the metrics folder (<state dir>/metrics)")
@@ -188,11 +198,11 @@ def main():
                     help="stop at this Unix time (default: the first live metrics start)")
     ap.add_argument("--replace", action="store_true", help="drop earlier backfill records first")
     ap.add_argument("--owner", help="give the folder's files to this user (the server's)")
-    ap.add_argument("--geoip", help="player-location database (default: the server's, "
-                    "see geoip.py); without one, sessions get no country")
+    ap.add_argument("--geoip", help="player-location database (default: the server's, or "
+                    "geoip/geoip.bin next to --dir); without one, sessions get no country")
     a = ap.parse_args()
     load_hall_env(a.env)
-    if not geoip.load(a.geoip):
+    if not geoip.load(geoip_path(a.geoip, a.dir)):
         print("no geoip database: sessions get no country (deploy/geoip_update.py)")
 
     import matchmaking_handlers as mh

@@ -391,6 +391,14 @@ LOG = r"""2026-11-22T20:00:00+00:00 vm python[1]: 20:00:00 INFO    mh3u.server: 
 """
 
 
+def test_backfill_finds_the_geoip_file_next_to_the_metrics_folder(tmp_path, monkeypatch):
+    bf = _backfill_module()
+    monkeypatch.setattr(bf.geoip, "PATH", tmp_path / "nowhere" / "geoip.bin")
+    want = (tmp_path / "state" / "geoip" / "geoip.bin").resolve()
+    assert bf.geoip_path(None, tmp_path / "state" / "metrics") == want
+    assert str(bf.geoip_path("given.bin", tmp_path / "state" / "metrics")) == "given.bin"
+
+
 def test_backfill_replays_the_journal_through_the_same_code(tmp_path, geo):
     bf = _backfill_module()
     rec = metrics.Recorder(tmp_path, live=False, backfill=True)

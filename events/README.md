@@ -14,9 +14,12 @@ Anyone can make an event quest and send it in to be added to the list.
 1. **Get [MH3U Quest Studio](https://github.com/Matt-Wood-23/mh3u-quest-studio/releases)**,
    the quest editor.
 2. **Open a quest pack.** Close the game first. In Quest Studio, open the **Cemu save packs**
-   menu and pick `quest1`, `quest2` or `quest3` under your MH3U Online folder. If the folder
+   menu and pick `quest1` or `quest3` under your MH3U Online folder. If the folder
    isn't listed, use **Add a Cemu folder…** and pick the folder that has `MH3U_Online.exe` in
-   it. (`quest4` is for arena quests.)
+   it. The game's Event Quests list only reads `quest1` and `quest3`: a quest in `quest2`
+   never shows, and `quest4` is for arena quests. Keep a pack's quests together from the
+   first slot: the game reads only as many slots from the start as the pack has quests, so
+   an empty slot in between hides the last quest.
 3. **Click New quest…** and pick an event quest to copy. The official ones (A Golden Welcome,
    The Gilded King, The Little Queen) are good starting points. Edit your copy, not the
    official quest itself: the launcher leaves a quest you've changed alone, so you would stop
@@ -41,15 +44,18 @@ Anyone can make an event quest and send it in to be added to the list.
    - **Fair for its rank**: keep the monster, difficulty and rewards in line with the rank
      and star level you picked.
 6. **Play it all the way through**, ideally once online with a friend as well.
-7. **Send it in**: put the pack file (for example `quest1`, from
-   `portable\mlc01\usr\save\00050000\10118300\user\80000001\` in your MH3U Online folder,
-   or `10117200` instead of `10118300` for the EU game) in a zip, and either:
+7. **Send it in**: select your quest in Quest Studio and click **Export quest…**. It saves
+   just your quest as one file, named after its number (for example `q_20360.quest`). Then
+   either:
    - open an issue with the
      [event quest form](https://github.com/Matt-Wood-23/mh3u-revival/issues/new?template=event_quest.yml)
-     and attach the zip, or
+     and attach the file in a zip (GitHub doesn't take `.quest` files), or
    - post it on the [Discord](https://discord.gg/HTEWJDYgzJ).
 
-   Say which quest in the pack is yours (its number and name).
+   With an older Quest Studio that has no **Export quest…**, send the whole pack file instead
+   (for example `quest1`, from `portable\mlc01\usr\save\00050000\10118300\user\80000001\` in
+   your MH3U Online folder, or `10117200` instead of `10118300` for the EU game) in a zip, and
+   say which quest in it is yours (its number and name).
 
 **What happens next:** every quest is tested before it goes on the list, and its number,
 text, difficulty or rewards may be changed. Quests with offensive text, or copied from
@@ -63,10 +69,11 @@ same number.
 
 ## For maintainers: adding a quest
 
-1. Unzip the submission, then pull the quest out of the pack:
+1. Unzip the submission if it's zipped, then add the quest from the exported `.quest` file
+   (or pull it out of a pack file, the same way):
 
    ```
-   python events/update_list.py --add <pack file> <quest number> [--as <new number>]
+   python events/update_list.py --add <.quest or pack file> <quest number> [--as <new number>]
    ```
 
    This writes `events/q_<number>.quest` and rebuilds `events.json`. Use `--as` to give it a

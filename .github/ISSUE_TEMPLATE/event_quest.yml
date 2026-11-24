@@ -34,9 +34,9 @@ body:
   - type: textarea
     id: pack
     attributes:
-      label: Quest pack
+      label: Quest file
       description: |
-        Zip the pack file your quest is in (quest1, quest2 or quest3) and drag the zip in here.
+        In Quest Studio, select your quest and click Export quest…, zip the q_<number>.quest file it saves (GitHub doesn't take .quest files), and drag the zip in here. With an older Quest Studio, zip the pack file your quest is in (quest1 or quest3) instead.
     validations:
       required: true
   - type: textarea

@@ -5,7 +5,8 @@ Admin only: the dashboard's Metrics section reads GET /metrics on the admin port
 
 What is kept, one JSON line each, in <state dir>/metrics/events-YYYY-MM.jsonl:
   session  one per finished session: PID, hunter name and HR, start/end, time in rooms,
-           hall, game build (JP or not), round trip to the server, how it ended
+           hall, game build (JP or not), round trip to the server, how it ended, and
+           country + state/province (from the IP, when geoip.py has a database)
   hour     one per UTC hour: players online (average, most), rooms, players in rooms,
            relay bytes sent, chat messages
   room     one per room: when, host, most players at once, who was in it
@@ -13,7 +14,7 @@ What is kept, one JSON line each, in <state dir>/metrics/events-YYYY-MM.jsonl:
   link     one per player-to-player link the server brokered: did it come up, how fast,
            host or guest pair, relayed or direct
   start/stop  server starts (and whether the last run crashed) and stops
-No IP addresses. Files older than MH3U_METRICS_MONTHS (default 13) months are deleted.
+No IP addresses (or cities). Files older than MH3U_METRICS_MONTHS (default 13) months are deleted.
 
 On where the other saved counters are (a public server: status page or Discord), unless
 MH3U_METRICS=0; MH3U_METRICS=1 turns it on anywhere. deploy/metrics_backfill.py builds the
@@ -32,6 +33,7 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import geoip
 import limits
 
 logger = logging.getLogger("mh3u.metrics")
@@ -153,15 +155,17 @@ class Recorder:
         self._save_open(now, running=False)
 
     # --- players -----------------------------------------------------------------
-    def login(self, pid, now):
+    def login(self, pid, now, place=None):
         s = self.sessions.get(pid)
         if s is not None:                    # a reconnect before the old connection closed
             s["reconnects"] += 1
-            return
-        self.sessions[pid] = {"pid": pid, "t0": now, "name": "", "hr": None, "hall": "",
-                              "jp": None, "rtt": None, "room_s": 0.0, "room": None,
-                              "room_since": None, "rooms": 0, "hosted": 0, "reconnects": 0,
-                              "dropped": False}
+        else:
+            s = self.sessions[pid] = {
+                "pid": pid, "t0": now, "name": "", "hr": None, "hall": "", "jp": None,
+                "rtt": None, "room_s": 0.0, "room": None, "room_since": None, "rooms": 0,
+                "hosted": 0, "reconnects": 0, "dropped": False}
+        if place:
+            s["cc"], s["region"] = place
 
     def logout(self, pid, now):
         s = self.sessions.get(pid)
@@ -185,7 +189,8 @@ class Recorder:
                      "jp": s.get("jp"), "rtt": s.get("rtt"), "room_s": int(s["room_s"]),
                      "rooms": s.get("rooms", 0), "hosted": s.get("hosted", 0),
                      "reconnects": s.get("reconnects", 0), "dropped": bool(s.get("dropped")),
-                     "end": how})
+                     "end": how,
+                     **({"cc": s["cc"], "region": s.get("region", "")} if s.get("cc") else {})})
 
     def presence(self, pid, raw, now):
         f = str(raw or "").split("\t")
@@ -443,7 +448,15 @@ def start(persist, folder=None, now=None):
     _rec = Recorder(folder or STATE_DIR / SUBDIR)
     _rec.start(time.time() if now is None else now)
     logger.info("metrics: recording to %s (admin page: Metrics)", _rec.dir)
+    _geoip_load()
     return True
+
+
+def _geoip_load():
+    try:
+        geoip.load()
+    except Exception:
+        logger.warning("metrics: geoip load failed", exc_info=True)
 
 
 def stop(restart=False, now=None):
@@ -463,8 +476,15 @@ def _call(name, *args, now=None, **kw):
         logger.warning("metrics: %s failed", name, exc_info=True)
 
 
-def login(pid, now=None):
-    _call("login", pid, now=now)
+def login(pid, ip=None, now=None):
+    """ip: the address the player connects from; only its country/region is kept."""
+    if _rec is None:
+        return
+    try:
+        where = geoip.place(ip)
+    except Exception:
+        where = None
+    _call("login", pid, now=now, place=where)
 
 
 def logout(pid, now=None):
@@ -514,6 +534,7 @@ def link_result(pid, other, ok, now=None):
 def sample(now=None):
     if _rec is None:
         return
+    _geoip_load()                            # picks up a new monthly database
     try:
         import server_stats
         out_today = server_stats.relay_totals()["bytes_out_today"]
@@ -755,12 +776,30 @@ def build_report(recs, now, tz_minutes=0, days=30):
         if s.get("rtt"):
             rtts[s["pid"]].append(s["rtt"])
     per_player_rtt = sorted(_median(v) for v in rtts.values())
+    # Each player counts once, at the place of their latest session in the period.
+    at, place_hours = {}, Counter()
+    for s in win:
+        if s.get("cc"):
+            if s["pid"] not in at or s["t1"] >= at[s["pid"]][0]:
+                at[s["pid"]] = (s["t1"], s["cc"], s.get("region") or "")
+            place_hours[s["cc"]] += (s["t1"] - max(s["t0"], w0)) / 3600
+    countries = Counter(cc for _, cc, _ in at.values())
+    regions = Counter((cc, rg) for _, cc, rg in at.values() if rg)
     buckets = [("Under 50 ms", 0, 50), ("50-100 ms", 50, 100), ("100-150 ms", 100, 150),
                ("150-250 ms", 150, 250), ("250 ms or more", 250, 10 ** 9)]
     where = {
         "halls": [{"hall": h, "players": len(v), "hours": round(hall_hours[h], 1)}
                   for h, v in sorted(halls.items(), key=lambda x: -len(x[1]))],
         "games": {k: len(v) for k, v in games.items()},
+        "countries": [{"cc": cc, "players": n, "hours": round(place_hours[cc], 1)}
+                      for cc, n in sorted(countries.items(), key=lambda x: (-x[1], x[0]))],
+        "regions": [{"cc": cc, "region": rg, "players": n}
+                    for (cc, rg), n in sorted(regions.items(),
+                                              key=lambda x: (-x[1], x[0]))][:12],
+        "region_count": len(regions),
+        "located": len(at),
+        "unlocated": len({s["pid"] for s in win} - set(at)),
+        "geoip": geoip.loaded(),
         "rtt": {"players": len(per_player_rtt),
                 "median": round(_median(per_player_rtt)) if per_player_rtt else None,
                 "over_150": sum(1 for x in per_player_rtt if x >= 150),

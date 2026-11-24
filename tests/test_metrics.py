@@ -282,6 +282,86 @@ def test_registry_and_admin_endpoint_record_a_room(tmp_path, monkeypatch):
     assert metrics._rec is None
 
 
+def _ip4(s):
+    a, b, c, d = map(int, s.split("."))
+    return a << 24 | b << 16 | c << 8 | d
+
+
+@pytest.fixture
+def geo(tmp_path, monkeypatch):
+    """A tiny location database: 8.x.x.x = California, 81.x.x.x = England."""
+    import geoip
+    path = tmp_path / "geoip.bin"
+    path.write_bytes(geoip.pack(
+        [0, _ip4("8.0.0.0"), _ip4("9.0.0.0"), _ip4("81.0.0.0"), _ip4("82.0.0.0")],
+        [0, 1, 0, 2, 0], [["", ""], ["US", "California"], ["GB", "England"]], "test"))
+    monkeypatch.setattr(geoip, "PATH", path)
+    monkeypatch.setattr(geoip, "_table", None)
+    monkeypatch.setattr(geoip, "_stamp", None)
+    assert geoip.load()
+    return geoip
+
+
+def test_geoip_places_public_addresses_only(geo, tmp_path):
+    assert geo.place("8.8.8.8") == ("US", "California")
+    assert geo.place("::ffff:81.2.3.4") == ("GB", "England")
+    for ip in ("9.1.1.1", "192.168.1.5", "100.100.1.1", "127.0.0.1", "2001:db8::1",
+               "nonsense", "", None):
+        assert geo.place(ip) is None, ip
+    # A new file is picked up on the next load (the monthly update, no restart).
+    geo.PATH.write_bytes(geo.pack([0, _ip4("8.0.0.0"), _ip4("9.0.0.0")], [0, 1, 0],
+                                  [["", ""], ["CA", "Ontario"]], "test2"))
+    os.utime(geo.PATH, (1, 1))
+    assert geo.load() and geo.place("8.8.8.8") == ("CA", "Ontario")
+    geo.PATH.write_bytes(b"junk")
+    os.utime(geo.PATH, (2, 2))
+    assert not geo.load() and geo.place("8.8.8.8") is None
+
+
+def test_geoip_update_converts_db_ip_rows():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "geoip_update", os.path.join(_ROOT, "deploy", "geoip_update.py"))
+    gu = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gu)
+    rows = [["0.0.0.0", "0.255.255.255", "ZZ", "ZZ", "", "", "0", "0"],
+            ["8.0.0.0", "8.0.0.255", "NA", "US", "California", "A", "0", "0"],
+            ["8.0.1.0", "8.0.1.255", "NA", "US", "California", "B", "0", "0"],   # merged
+            ["8.0.3.0", "8.0.3.255", "EU", "GB", "England", "C", "0", "0"],      # after a gap
+            ["2001::", "2001::ffff", "EU", "GB", "England", "C", "0", "0"]]      # IPv6: skipped
+    starts, idx, labels = gu.convert(rows)
+    assert labels == [["", ""], ["US", "California"], ["GB", "England"]]
+    assert starts == [0, _ip4("8.0.0.0"), _ip4("8.0.2.0"), _ip4("8.0.3.0"), _ip4("8.0.4.0")]
+    assert idx == [0, 1, 0, 2, 0]
+    country = gu.convert([["1.0.0.0", "1.0.0.255", "AU"]])
+    assert country[2] == [["", ""], ["AU", ""]]
+    import geoip
+    assert geoip.parse(geoip.pack(starts, idx, labels, "x"))[2] == [tuple(l) for l in labels]
+
+
+def test_sessions_keep_the_place_and_the_report_counts_it(geo, tmp_path, monkeypatch):
+    monkeypatch.setattr(metrics, "SWITCH", "1")
+    assert metrics.start(False, folder=tmp_path, now=T0)
+    try:
+        for pid, name, ip in ((1, "Mira", "8.8.8.8"), (2, "Sam", "81.2.3.4"),
+                              (3, "Ren\xe9e", "8.1.2.3"), (4, "O'Neil", "10.0.0.9")):
+            metrics.login(pid, ip, now=T0)
+            metrics.presence(pid, status(name), now=T0)
+        for pid in (1, 2, 3, 4):
+            metrics.logout(pid, now=T0 + 3600)
+    finally:
+        metrics.stop(now=T0 + 3700)
+    s = {r["pid"]: r for r in records(tmp_path, "session")}
+    assert (s[1]["cc"], s[1]["region"], s[2]["cc"]) == ("US", "California", "GB")
+    assert "cc" not in s[4] and not any("ip" in r or "8.8.8.8" in json.dumps(r)
+                                        for r in records(tmp_path))
+    w = metrics.build_report(records(tmp_path), T0 + 4000, days=0)["where"]
+    assert w["countries"] == [{"cc": "US", "players": 2, "hours": 2.0},
+                              {"cc": "GB", "players": 1, "hours": 1.0}]
+    assert w["regions"][0] == {"cc": "US", "region": "California", "players": 2}
+    assert (w["located"], w["unlocated"], w["region_count"]) == (3, 1, 2)
+
+
 def _backfill_module():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
@@ -292,9 +372,9 @@ def _backfill_module():
 
 
 LOG = r"""2026-11-22T20:00:00+00:00 vm python[1]: 20:00:00 INFO    mh3u.server: MH3U NEX server  |  game_server_id=0x10104D00
-2026-11-22T20:00:05+00:00 vm python[1]: 20:00:05 INFO    mh3u.proto: REGISTER pid=11 cid=4097 urls=[] -> public=x
+2026-11-22T20:00:05+00:00 vm python[1]: 20:00:05 INFO    mh3u.proto: REGISTER pid=11 cid=4097 urls=['prudp:/address=10.0.0.2;port=1'] -> public=prudp:/address=8.8.4.4;port=50000;PID=11
 2026-11-22T20:00:06+00:00 vm python[1]: 20:00:06 INFO    mh3u.matchmaking: join_community: pid=11 -> hall 0x101 (now 1)
-2026-11-22T20:00:07+00:00 vm python[1]: 20:00:07 INFO    mh3u.matchmaking: update_notification_data: type=101 p1=11 p2=1 p3='1\t0x1\t0x0\t0x0\t0x1\tNot Login\t0\t0\tL\xe9a\t7\t16\t0\t0\t0\t0\t' (pid=11) -> ok
+2026-11-22T20:00:07+00:00 vm python[1]: 20:00:07 INFO    mh3u.matchmaking: update_notification_data: type=101 p1=11 p2=1 p3='1\t0x1\t0x0\t0x0\t0x1\tNot Login\t0\t0\tRen\xe9e\t7\t16\t0\t0\t0\t0\t' (pid=11) -> ok
 2026-11-22T20:00:08+00:00 vm python[1]: 20:00:08 INFO    mh3u.proto: REGISTER pid=22 cid=4098 urls=[] -> public=x
 2026-11-22T20:00:09+00:00 vm python[1]: 20:00:09 INFO    mh3u.matchmaking: update_notification_data: type=101 p1=22 p2=1 p3="1\t0x1\t0x0\t0x0\t0x1\tNot Login\t0\t0\tO'Neil\t40\t16\t0\t0\t0\t0\t" (pid=22) -> ok
 2026-11-22T20:00:10+00:00 vm python[1]: 20:00:10 INFO    mh3u.proto: report_nat_properties: natm=1 natf=2 rtt=231 (pid=22)
@@ -311,7 +391,7 @@ LOG = r"""2026-11-22T20:00:00+00:00 vm python[1]: 20:00:00 INFO    mh3u.server: 
 """
 
 
-def test_backfill_replays_the_journal_through_the_same_code(tmp_path):
+def test_backfill_replays_the_journal_through_the_same_code(tmp_path, geo):
     bf = _backfill_module()
     rec = metrics.Recorder(tmp_path, live=False, backfill=True)
     labels = {0x101: ("Americas", False)}
@@ -319,8 +399,10 @@ def test_backfill_replays_the_journal_through_the_same_code(tmp_path):
     got = records(tmp_path)
     assert all(r.get("bf") == 1 for r in got)
     s = {r["pid"]: r for r in got if r["k"] == "session"}
-    assert (s[11]["name"], s[11]["hall"], s[11]["hr"]) == ("L\xe9a", "Americas", 7)
+    assert (s[11]["name"], s[11]["hall"], s[11]["hr"]) == ("Ren\xe9e", "Americas", 7)
     assert (s[22]["name"], s[22]["rtt"], s[22]["end"]) == ("O'Neil", 231, "logout")
+    assert (s[11]["cc"], s[11]["region"]) == ("US", "California")   # the observed address
+    assert "cc" not in s[22]                                         # no address logged
     assert s[11]["end"] == "shutdown" and s[22]["room_s"] == 30 * 60 - 5 - 60
     (j,) = [r for r in got if r["k"] == "join"]
     assert j["stayed"] is True

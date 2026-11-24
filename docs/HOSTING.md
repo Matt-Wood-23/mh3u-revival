@@ -212,6 +212,7 @@ same hall and enter your room.
 | `MH3U_STATE_DIR` | `state` (systemd: `StateDirectory=`) | where the server keeps the Discord message id and its saved counters (`stats.json`: today's peak and relay traffic). Only written when the status page or Discord is on. |
 | `MH3U_METRICS` | on with the status page or Discord | play metrics for the dashboard (busiest hours, unique players, playtime leaderboard, connection health), kept in `<state dir>/metrics/`. `0` turns them off, `1` turns them on anywhere. See [Play metrics](#play-metrics). |
 | `MH3U_METRICS_MONTHS` | `13` | months of metrics to keep; older files are deleted at startup |
+| `MH3U_GEOIP` | `<state dir>/geoip/geoip.bin` | the player-location database (`deploy/geoip_update.py`); see [Play metrics](#play-metrics) |
 | `MH3U_EGRESS_WARN_GB` | `5000` | post a Discord alert once a month when the relay has sent this many GB (0 = never). Oracle's free outbound allowance is 10 TB a month. |
 | `MH3U_DISCORD_STATUS_WEBHOOK` | (none) | a Discord webhook URL. The server keeps one message in that channel up to date with the player and room counts. |
 | `MH3U_DISCORD_ALERT_WEBHOOK` | (none) | a Discord webhook URL for alerts: a post when the server starts, stops, or comes back after a crash or reboot. Can be the same URL as the status one. |
@@ -258,8 +259,8 @@ Below those, the dashboard has a **Metrics** section, for the last 7 days, 30 da
 time, in your own time zone: players today / this week / this month / ever, new players and
 how many came back, the busiest hours by weekday, players per day, a playtime leaderboard
 (time in rooms and time online), connection health (joins where the player was still in the
-room a minute later, player-to-player links that came up, who fails to join most), halls,
-game versions and distance to the server, rooms and how full they get, relay traffic and
+room a minute later, player-to-player links that came up, who fails to join most), players
+per country and state / province, halls, game versions and distance to the server, rooms and how full they get, relay traffic and
 chat per day, hunter ranks, and server restarts and crashes. `/metrics?days=7&tz=300` on
 the admin port returns the same numbers as JSON.
 
@@ -273,6 +274,21 @@ records from the server's journal once, after the first start of the new version
 sudo /opt/mh3u/venv/bin/python deploy/metrics_backfill.py \
     --env /etc/mh3u.env --dir /var/lib/mh3u/metrics --owner mh3u
 ```
+
+**Player locations** (players per country and per state / province) need a location
+database on the server. Build it from DB-IP's free IP to City Lite file (CC BY 4.0, "IP
+Geolocation by DB-IP"):
+
+```sh
+sudo /opt/mh3u/venv/bin/python deploy/geoip_update.py --dir /var/lib/mh3u/geoip --owner mh3u
+```
+
+It downloads about 85 MB and writes a 13 MB `geoip.bin`; `--country` uses the smaller
+country-only file. Addresses are looked up on the server and never sent anywhere, and only
+the country and state / province are kept. A running server picks up a new file within a
+minute, so you can refresh it monthly from cron. Without the file, metrics work the same
+minus the locations. Build it before running the backfill, so earlier sessions get their
+locations too (`--replace` redoes a backfill you already ran).
 
 `wait=empty` waits until nobody is online at all, `wait=now` restarts after a 15-second
 warning. Players see the plan in chat when it's scheduled, every 15 minutes while it

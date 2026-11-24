@@ -5,9 +5,9 @@ with metrics:
     sudo /opt/mh3u/venv/bin/python deploy/metrics_backfill.py \\
         --env /etc/mh3u.env --dir /var/lib/mh3u/metrics --owner mh3u
 
-It replays the INFO log lines (logins, logouts, in-game status, hall joins, rooms, probes,
-link results, chat, the once-a-minute STATUS line, starts and stops) through the same code
-the live server uses, up to the server's first metrics start, and appends the records
+It replays the INFO log lines (logins, with the player's country from geoip.py; logouts,
+in-game status, hall joins, rooms, probes, link results, chat, the once-a-minute STATUS
+line, starts and stops) through the same code the live server uses, up to the server's first metrics start, and appends the records
 marked "bf": 1. Run it again with --replace to drop those and redo them. --input FILE reads
 a saved `journalctl -o short-iso` dump instead of calling journalctl.
 """
@@ -25,6 +25,8 @@ HERE = Path(__file__).resolve().parent
 # Same imports as server.py: the cloned NintendoClients next to the repo, then the repo.
 sys.path.insert(0, str(HERE.parent.parent / "external" / "NintendoClients"))
 sys.path.insert(0, str(HERE.parent))
+
+import geoip  # noqa: E402
 
 
 def load_hall_env(path):
@@ -64,7 +66,7 @@ RX = {k: re.compile(v) for k, v in {
     "start": r"mh3u\.server: MH3U NEX server",
     "stop": r"mh3u\.server: shutting down( for a planned restart)?|systemd\[1\]: Stopping ",
     "status": r"STATUS players=\d+ .*?(?:relay_out_today=([\d.]+)([KMGT]?B))?$",
-    "register": r"mh3u\.proto: REGISTER pid=(\d+) ",
+    "register": r"mh3u\.proto: REGISTER pid=(\d+) (?:.*?-> public=\S*?address=([^;\s]+))?",
     "logout": r"mh3u\.proto: LOGOUT pid=(\d+) cid=\S+ -> cleaned up; rooms affected=(\[.*?\]);",
     "presence": r"update_notification_data: type=101 p1=\S+ p2=\S+ p3=('(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\") \(pid=(\d+)\)",
     "hall": r"join_community: pid=(\d+) -> hall 0x([0-9a-f]+)",
@@ -127,7 +129,7 @@ def replay(lines, rec, until, hall_label):
             used += 1
             g = m.groups()
             if kind == "register":
-                rec.login(int(g[0]), t)
+                rec.login(int(g[0]), t, place=geoip.place(g[1]))
             elif kind == "logout":
                 pid = int(g[0])
                 for action, gid, _left in ast.literal_eval(g[1]):
@@ -186,8 +188,12 @@ def main():
                     help="stop at this Unix time (default: the first live metrics start)")
     ap.add_argument("--replace", action="store_true", help="drop earlier backfill records first")
     ap.add_argument("--owner", help="give the folder's files to this user (the server's)")
+    ap.add_argument("--geoip", help="player-location database (default: the server's, "
+                    "see geoip.py); without one, sessions get no country")
     a = ap.parse_args()
     load_hall_env(a.env)
+    if not geoip.load(a.geoip):
+        print("no geoip database: sessions get no country (deploy/geoip_update.py)")
 
     import matchmaking_handlers as mh
     import metrics

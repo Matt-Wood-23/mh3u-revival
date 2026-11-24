@@ -347,7 +347,11 @@ class SecureConnectionServer(_Trace, secure.SecureConnectionServer):
         client._mh3u_since = time.time()          # "online for", on the admin page (who.py)
         matchmaking_handlers.CID_TO_PID[cid] = _pid(client)
         relay_policy.record_seen(_pid(client))
-        metrics.login(_pid(client))
+        try:
+            peer_ip = client.remote_address()[0]
+        except Exception:
+            peer_ip = None
+        metrics.login(_pid(client), peer_ip)     # keeps only the country/region
         logger.info("REGISTER pid=%s cid=%s urls=%s -> public=%s",
                     _pid(client), cid, [str(u) for u in urls], station)
         resp = rmc.RMCResponse()

@@ -65,6 +65,8 @@ PAGE = """<!doctype html>
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
   .grid3 { display:grid; grid-template-columns:repeat(3, 1fr); gap:18px; }
   .grid2 > div, .grid3 > div { min-width:0; }
+  .geonote { margin:10px 0 18px; }
+  .note a { color:var(--dim); }
   @media (max-width: 760px) { .grid2, .grid3 { grid-template-columns:1fr; } }
   .chart svg { display:block; width:100%; overflow:visible; }
   .chart text { fill:var(--dim); font-size:11px; font-variant-numeric:tabular-nums; }
@@ -216,6 +218,11 @@ PAGE = """<!doctype html>
 
     <section>
       <h2>Where players are</h2>
+      <div class="grid2">
+        <div><h3>Players per country</h3><div class="bars" id="countries"></div></div>
+        <div><h3>Players per state / province</h3><div class="bars" id="regions"></div></div>
+      </div>
+      <div class="note geonote" id="geonote"></div>
       <div class="grid3">
         <div><h3>Players per hall</h3><div class="bars" id="halls"></div></div>
         <div><h3>Round trip to the server (per player)</h3><div class="bars" id="rtt"></div>
@@ -583,9 +590,36 @@ function barList(box, rows, fmt) {      // rows: [[label, value]]
     const fill = el("div", null, "fill" + (v ? "" : " zero"));
     fill.style.width = (100 * v) / max + "%";
     track.append(fill);
-    row.append(el("div", label, "lab"), track, el("div", fmt(v), "val"));
+    const lab = el("div", label, "lab");
+    lab.title = label;                    // the full text when it's cut short
+    row.append(lab, track, el("div", fmt(v), "val"));
     box.append(row);
   }
+}
+
+let regionNames = null;
+try { regionNames = new Intl.DisplayNames(["en"], { type: "region" }); } catch (e) { /* old browser */ }
+function countryName(cc) {
+  try { return (regionNames && regionNames.of(cc)) || cc; } catch (e) { return cc; }
+}
+
+function geoNote(box, w) {
+  box.replaceChildren();
+  if (!w.geoip && !(w.countries || []).length) {
+    box.append("No location database on the server yet (deploy/geoip_update.py builds it).");
+    return;
+  }
+  let t = "From the address each player connects from; only the country and state / " +
+    "province are kept.";
+  if (w.unlocated) t += " " + plural(w.unlocated, "player") + " not located (LAN or VPN " +
+    "address, or only played before locations were recorded).";
+  if (w.region_count > (w.regions || []).length)
+    t += " Top " + w.regions.length + " of " + w.region_count + " states / provinces.";
+  const a = el("a", "IP Geolocation by DB-IP");
+  a.href = "https://db-ip.com";
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  box.append(t + " ", a);
 }
 
 function tiles(box, items) {            // [label, value, note]
@@ -681,6 +715,11 @@ function renderMetrics() {
   $("notrouble").hidden = h.trouble.length > 0;
 
   const w = d.where;
+  barList($("countries"), (w.countries || []).map((r) => [countryName(r.cc), r.players]),
+          (v) => plural(v, "player"));
+  barList($("regions"), (w.regions || []).map((r) => [r.region + ", " + r.cc, r.players]),
+          (v) => plural(v, "player"));
+  geoNote($("geonote"), w);
   barList($("halls"), w.halls.map((r) => [r.hall, r.players]), (v) => plural(v, "player"));
   barList($("rtt"), w.rtt.buckets.map((r) => [r.label, r.players]), (v) => plural(v, "player"));
   $("rttnote").textContent = w.rtt.players ? "Median " + w.rtt.median + " ms; " +

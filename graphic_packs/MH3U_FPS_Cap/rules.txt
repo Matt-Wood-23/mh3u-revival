@@ -1,8 +1,8 @@
 [Definition]
 titleIds = 0005000010118300,0005000010117200,0005000010104d00
-name = "FPS Cap (engine frame limiter)"
-path = "Monster Hunter 3 Ultimate/Mods/FPS Cap"
-description = "Engages MH3U's own built-in frame limiter (Capcom shipped it parked at 3000 = uncapped) and normalizes broken per-frame mechanics at the chosen cap. 30 FPS: everything exactly as designed. 45 FPS: middle ground, normalized. 60 FPS (normalized beta): smooth + lance charge stamina drain corrected to design rate (-120/sec) + camera rotation speed corrected to design rate (204.7 deg/s yaw, underwater pitch too) + buff icons beside your name cycle at the design 0.70 s per icon + hammer golf swing out of the Spinning Bludgeon works again (30/45/60) + Alatreon's running turn at the design rate. US v1.3, EU v1.3 and JP v96 (JP untested)."
+name = "FPS Normalization (frame limiter + speed fixes)"
+path = "Monster Hunter 3 Ultimate/Mods/FPS Normalization"
+description = "Caps the game at the frame rate you pick with MH3U's own frame limiter (Capcom shipped it parked at 3000 = uncapped) and normalizes what runs at the wrong speed above 30. 30 FPS: everything exactly as designed. 45 FPS: middle ground, normalized. 60 FPS (normalized beta): smooth + lance charge stamina drain at the design rate (-120/sec) + camera rotation at the design rate (204.7 deg/s yaw, underwater pitch too) + buff icons beside your name cycle at the design 0.70 s per icon + hammer golf swing out of the Spinning Bludgeon works again (30/45/60) + Alatreon's running turn at the design rate. US v1.3, EU v1.3 and JP v96. Formerly named FPS Cap."
 version = 7
 
 [Default]

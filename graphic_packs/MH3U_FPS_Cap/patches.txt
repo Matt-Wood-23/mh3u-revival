@@ -56,7 +56,7 @@ moduleMatches = 0x9D2F15E5
 0x0249AFC8 = .uint $alaTurn7
 
 [MH3U_FpsCap_EU_v13]
-moduleMatches = 0xADA406E7
+moduleMatches = 0xADA406E7, 0xA386FAF4, 0x9F1D81A4, 0x913F7DB7
 
 ; sMain ctor (FUN_0294b318) loads mMaxFps (+0x50) from this rodata float.
 ; Stock value 3000.0 = frame limiter parked/uncapped.

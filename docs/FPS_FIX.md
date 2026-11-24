@@ -7,7 +7,9 @@ limiter and corrects those things for the frame rate you pick.
 It used to be called **FPS Cap**. Only the name changed: it's the same pack in the same
 folder (`MH3U_FPS_Cap`), so installing the new one over the old one keeps your settings.
 
-It's optional and only changes your own game. You can use it with or without online play.
+It only changes your own game, and works with or without online play. The MH3U Online Bundle
+comes with it switched on at 60 FPS (bundle downloads from v0.3.0-beta on). To change the
+frame rate or turn it off, see step 3 under [Install](#install).
 
 ## What it fixes at 60 fps
 
@@ -33,6 +35,9 @@ either case, which is about 200 ms at 30 fps and about 100 ms at 60. This pack l
 
 ## Install
 
+A fresh MH3U Online Bundle already has it installed and on at 60 FPS: skip to step 3 only to
+change the frame rate. For an older bundle folder or your own Cemu:
+
 1. Download **[MH3U_FPS_Normalization.zip](https://github.com/Matt-Wood-23/mh3u-revival/releases/download/v0.3.0-beta/MH3U_FPS_Normalization.zip)**
    (the same files are in [graphic_packs/MH3U_FPS_Cap](../graphic_packs/MH3U_FPS_Cap)).
 2. In Cemu, click **File → Open Cemu folder**. Open the `graphicPacks` folder there (create
@@ -40,7 +45,8 @@ either case, which is about 200 ms at 30 fps and about 100 ms at 60. This pack l
    `graphicPacks\MH3U_FPS_Cap\rules.txt`. In the MH3U Online Bundle, that folder is
    `portable\graphicPacks`.
 3. In Cemu, open **Options → Graphic packs → Monster Hunter 3 Ultimate → Mods → FPS Normalization**.
-   Tick it and pick the **60 FPS (normalized beta)** preset.
+   Tick it and pick the **60 FPS (normalized beta)** preset (or another one). Untick it to
+   play without it.
 4. Start the game. If it was running, restart it. Changing presets also needs a game restart.
 
 **Check it's on:** Cemu's title bar should hold steady at the frame rate you picked, even on

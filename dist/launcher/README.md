@@ -176,6 +176,10 @@ to the bundle's `portable/graphicPacks/MH3U_EventQuestFix/`. Never ship a copy t
 launcher has filled in: that one holds the game's quest text. `dist/bundle_settings.xml`
 already lists the pack as switched on.
 
+Copy `graphic_packs/MH3U_FPS_Cap/` to `portable/graphicPacks/MH3U_FPS_Cap/` too.
+`dist/bundle_settings.xml` switches it on with the 60 FPS preset (players can change it; the
+launcher doesn't force it on).
+
 ## Self-test
 
 ```bash

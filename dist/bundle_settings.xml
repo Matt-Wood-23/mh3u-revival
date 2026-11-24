@@ -11,6 +11,11 @@
     <GameCache/>
     <GraphicPack>
         <Entry filename="graphicPacks/MH3U_EventQuestFix/rules.txt"/>
+        <Entry filename="graphicPacks/MH3U_FPS_Cap/rules.txt">
+            <Preset>
+                <preset>60 FPS (normalized beta)</preset>
+            </Preset>
+        </Entry>
     </GraphicPack>
     <Graphic>
         <api>1</api>

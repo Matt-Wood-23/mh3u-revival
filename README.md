@@ -78,8 +78,8 @@ Optional extras that work alongside online play.
 - **FPS Normalization**, the 60 FPS fix (Cemu graphic pack, formerly FPS Cap): caps MH3U at
   30, 45 or 60 fps using the game's own frame limiter, and fixes what runs at the wrong speed
   above 30: camera turning, lance charge stamina, buff icons, the hammer golf swing and
-  Alatreon's running turn. US, EU and JP tested. Each player chooses for themselves.
-  [docs/FPS_FIX.md](docs/FPS_FIX.md).
+  Alatreon's running turn. US, EU and JP tested. On in the bundle at 60 FPS; each player can
+  change it in Cemu's Graphic packs. [docs/FPS_FIX.md](docs/FPS_FIX.md).
 - **Cemu Enhanced** (optional, experimental): the bundle's Cemu plus save states, pause,
   cheats, screen layouts and a controller-first Game Mode. A drop-in replacement for the
   bundle's `Cemu_release.exe`; save states and pause are blocked while you're online.

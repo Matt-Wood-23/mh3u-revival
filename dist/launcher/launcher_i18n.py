@@ -386,6 +386,13 @@ STRINGS = {
         "es": "[Events] Cemu está abierto; ciérralo para actualizar las misiones de evento.",
         "ja": "[Events] Cemuが開いています。イベントクエストを更新するには閉じてください。",
     },
+    "[Events] Couldn't find your US/EU game's files, so Capcom's event quests weren't added this time.": {
+        "fr": "[Events] Fichiers de votre jeu US/EU introuvables : les quêtes d'événement de Capcom n'ont pas été ajoutées cette fois.",
+        "de": "[Events] Die Dateien deines US/EU-Spiels wurden nicht gefunden, daher wurden die Event-Quests von Capcom diesmal nicht hinzugefügt.",
+        "it": "[Events] File del tuo gioco US/EU non trovati: le missioni evento di Capcom non sono state aggiunte questa volta.",
+        "es": "[Events] No se encontraron los archivos de tu juego US/EU, así que esta vez no se añadieron las misiones de evento de Capcom.",
+        "ja": "[Events] 北米版/欧州版ゲームのファイルが見つからないため、今回はカプコンのイベントクエストを追加しませんでした。",
+    },
     "[Events] Couldn't update the event quests in {key} ({err}).": {
         "fr": "[Events] Impossible de mettre à jour les quêtes d'événement dans {key} ({err}).",
         "de": "[Events] Event-Quests in {key} konnten nicht aktualisiert werden ({err}).",
@@ -493,6 +500,34 @@ STRINGS = {
         "it": "[MH3U Online] Identità pronta (NEX PID {pid}).",
         "es": "[MH3U Online] Identidad lista (NEX PID {pid}).",
         "ja": "[MH3U Online] IDの準備ができました（NEX PID {pid}）。",
+    },
+    "[MH3U Online] Turned on the graphic pack {pack}.": {
+        "fr": "[MH3U Online] Pack graphique {pack} activé.",
+        "de": "[MH3U Online] Grafikpaket {pack} eingeschaltet.",
+        "it": "[MH3U Online] Pacchetto grafico {pack} attivato.",
+        "es": "[MH3U Online] Paquete gráfico {pack} activado.",
+        "ja": "[MH3U Online] グラフィックパック {pack} を有効にしました。",
+    },
+    "[MH3U Online] Couldn't turn on the graphic packs ({err}).": {
+        "fr": "[MH3U Online] Impossible d'activer les packs graphiques ({err}).",
+        "de": "[MH3U Online] Die Grafikpakete konnten nicht eingeschaltet werden ({err}).",
+        "it": "[MH3U Online] Impossibile attivare i pacchetti grafici ({err}).",
+        "es": "[MH3U Online] No se pudieron activar los paquetes gráficos ({err}).",
+        "ja": "[MH3U Online] グラフィックパックを有効にできませんでした（{err}）。",
+    },
+    "[MH3U Online] Added the quest names from your game to the event quest fix.": {
+        "fr": "[MH3U Online] Noms de quêtes de votre jeu ajoutés au correctif des quêtes d'événement.",
+        "de": "[MH3U Online] Die Questnamen aus deinem Spiel wurden zum Event-Quest-Fix hinzugefügt.",
+        "it": "[MH3U Online] Nomi delle missioni del tuo gioco aggiunti alla correzione delle missioni evento.",
+        "es": "[MH3U Online] Se añadieron los nombres de misión de tu juego al arreglo de misiones de evento.",
+        "ja": "[MH3U Online] ゲーム内のクエスト名をイベントクエスト修正に追加しました。",
+    },
+    "[MH3U Online] Couldn't add quest names to the event quest fix ({err}).": {
+        "fr": "[MH3U Online] Impossible d'ajouter les noms de quêtes au correctif des quêtes d'événement ({err}).",
+        "de": "[MH3U Online] Die Questnamen konnten nicht zum Event-Quest-Fix hinzugefügt werden ({err}).",
+        "it": "[MH3U Online] Impossibile aggiungere i nomi delle missioni alla correzione delle missioni evento ({err}).",
+        "es": "[MH3U Online] No se pudieron añadir los nombres de misión al arreglo de misiones de evento ({err}).",
+        "ja": "[MH3U Online] イベントクエスト修正にクエスト名を追加できませんでした（{err}）。",
     },
     "[MH3U Online] Saved host = {host}": {
         "fr": "[MH3U Online] Hôte enregistré = {host}",

@@ -22,6 +22,21 @@ showing the bundle version and update state.
   random TransferableIdBase/Uuid/AccountPasswordCache, stock Mii,
   `AccountId=CemuMH3U<last4>`, LF line endings);
 - writes the host IP to `portable\mh3u_server.txt` (pre-filled if already set);
+- with "Add the official event quests" ticked: puts the official event quests (downloaded
+  from `events/`) **and the 38 quests Capcom used to offer as downloads** into the US/EU save
+  packs: the 28 event quests go into `quest3`, then `quest1`, the only two the game's Event
+  Quests list reads; the 10 Challenge Quests (61000-61009) go into `quest4`, which the
+  Arena's Challenge list reads. It never uses `quest2` (quests older launchers put there are
+  moved), and closes up any pack it changes, since the game stops reading a pack early when
+  there's an empty slot in it.
+  Capcom's are copied from the player's own game (`content\nativeCafe\quest\us`, found in
+  Cemu's mlc01, recently launched games or Game Paths; unpacked games only), so nothing
+  from the game ships with the bundle. They are exactly what the download servers (Capcom's,
+  now the goshawk replacements) offered for US/EU. The 9 collab quests (DUMMY in the Western
+  files) are left out; quests a player already has, e.g. from the old downloads, are left alone;
+- before launching: rebuilds the name tables of the cross-version event quest fix
+  (`portable\graphicPacks\MH3U_EventQuestFix`, see `eventfix_names.py`) from the same
+  game files, and makes sure that pack is switched on in `portable\settings.xml`;
 - launches `Cemu_release.exe` from the launcher's own directory
   (skippable with `MH3U_NOLAUNCH=1`, same as the .bat).
 
@@ -154,6 +169,11 @@ Copy `dist/MH3U_Online.exe`, `dist/version.txt`, **and** `server.exe`
 to `Cemu_release.exe`. The bundle build should **stamp `version.txt` with the release
 tag** so the updater has a baseline. The join batch ships alongside, renamed
 `If antivirus blocks the launcher - JOIN.bat`, as the no-exe fallback.
+
+Copy `graphic_packs/MH3U_EventQuestFix/` (as built in the repo: our nine quest names only)
+to the bundle's `portable/graphicPacks/MH3U_EventQuestFix/`. Never ship a copy the
+launcher has filled in: that one holds the game's quest text. `dist/bundle_settings.xml`
+already lists the pack as switched on.
 
 ## Self-test
 

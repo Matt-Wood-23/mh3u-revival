@@ -26,6 +26,7 @@ import re
 import sys
 import json
 import hashlib
+import html
 import secrets
 import shutil
 import time
@@ -42,6 +43,10 @@ try:
     from launcher_i18n import LANGUAGES, STRINGS
 except ImportError:
     LANGUAGES, STRINGS = (("en", "English"),), {}
+try:                    # quest names for the event quest fix (optional, like the texts)
+    import eventfix_names
+except ImportError:
+    eventfix_names = None
 _lang = "en"
 
 
@@ -122,6 +127,8 @@ EVENTS_BASE = (os.environ.get("MH3U_EVENTS_BASE", "").strip().rstrip("/")   # te
                or f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/events")
 EVENTS_CACHE_REL = os.path.join("portable", "mh3u_events_cache")
 EVENTS_STATE_REL = os.path.join("portable", "mh3u_events_state.json")
+CEMU_SETTINGS_REL = os.path.join("portable", "settings.xml")
+PACKS_REL = os.path.join("portable", "graphicPacks")
 STATUS_POLL_SECONDS = 60
 
 # stock default Mii — cosmetic only, identical to the .bat's MIID / MIIN
@@ -486,12 +493,15 @@ def format_status(snap):
 # ---------------------------------------------------------------------------
 # Official event quests
 #
-# The game keeps event quests in four "packs" in the save folder (quest1..quest4, 20 slots
-# each; quest4 is where Challenge Quests are read from). The launcher puts the official
-# event quests into free slots of quest3, then quest2, then quest1, and remembers a
-# fingerprint of every slot it wrote. It only ever changes or clears a slot that still
-# matches that fingerprint, so quests a player added themselves are never touched. Each
-# pack is backed up once (questN.revival_backup) before the launcher first changes it.
+# The save folder holds four quest "packs" (quest1..quest4, 20 slots each). Tested in game
+# 2026-11-24 (US): the Event Quests list reads only quest1 and quest3 (quest2 is never read;
+# quest4 is the Arena's Challenge list), and from each it reads only as many slots from slot
+# 0 as the pack has quests in it, so a gap hides the last quests. The launcher puts the
+# event quests into free slots of quest3, then quest1, closes up any pack it changes, and
+# remembers a fingerprint of every slot it wrote. It only ever changes or clears a slot
+# that still matches that fingerprint (closing up gaps may move a player's quest to an
+# earlier slot, unchanged). Each pack is backed up once (questN.revival_backup) before the
+# launcher first changes it.
 #
 # The quest number sets the rank the game lists it under: 201xx low, 202xx high, 203xx G
 # rank. The official ones use the top half of each block, clear of Capcom's own event
@@ -505,8 +515,16 @@ def event_number_ok(no):
 
 
 EVENT_NO_TEXT = ", ".join(f"{lo}-{hi}" for lo, hi in EVENT_NO_RANGES)
-EVENT_PACKS = ("quest3", "quest2", "quest1")
-EVENT_TITLES = ("10118300", "10117200")          # US, EU (the JP game's quests differ)
+EVENT_PACKS = ("quest3", "quest1")              # the packs the Event Quests list reads
+OLD_EVENT_PACKS = ("quest2",)                   # launchers before 2026-11-24 also used it
+CHALLENGE_PACK = "quest4"                       # the Arena's Challenge Quests list reads it
+CHALLENGE_NOS = tuple(range(61000, 61010))      # the only numbers that list lists (fixed in code)
+
+
+def target_packs(no):
+    """The packs a quest numbered `no` has to be in for the game to list it."""
+    return (CHALLENGE_PACK,) if no in CHALLENGE_NOS else EVENT_PACKS
+EVENT_TITLES = ("10118300", "10117200")          # US, EU (the JP game lists all its own)
 PACK_HEADER, PACK_SLOT, PACK_DATA, PACK_NAME, PACK_SLOTS = 0x28, 0x2010, 0x2000, 16, 20
 
 
@@ -624,30 +642,76 @@ def _slot_record(rec, no):
     return rec + bytes(PACK_DATA - len(rec)) + name + bytes(PACK_NAME - len(name))
 
 
-def sync_event_packs(save_dir, quests, owned):
+def _has_gap(pack):
+    """True if an empty slot comes before a used one."""
+    used = [bool(any(_slot(pack, i))) for i in range(PACK_SLOTS)]
+    return any(not u and any(used[i + 1:]) for i, u in enumerate(used))
+
+
+def _compact(pack):
+    """Move the used slots of a pack (bytearray) to the front, in order. The game counts the
+    used slots and reads only that many from slot 0, so a gap hides the last quests.
+    Returns {old index: new index}."""
+    used = [i for i in range(PACK_SLOTS) if any(_slot(pack, i))]
+    slots = [bytes(_slot(pack, i)) for i in used]
+    pack[PACK_HEADER:PACK_HEADER + PACK_SLOTS * PACK_SLOT] = bytes(PACK_SLOTS * PACK_SLOT)
+    for new, s in enumerate(slots):
+        o = PACK_HEADER + new * PACK_SLOT
+        pack[o:o + PACK_SLOT] = s
+    return {old: new for new, old in enumerate(used)}
+
+
+def sync_event_packs(save_dir, quests, owned, keep=()):
     """Bring one save folder's packs in line with `quests` ({number: record}).
     `owned` ({"quest3/0": {"no", "sha256"}}) says which slots the launcher wrote; it's
-    updated in place. Returns (added, updated, removed, notes)."""
+    updated in place. Our slots holding a number in `keep` but not in `quests` stay as
+    they are (their source couldn't be read this time). Our quests found in quest2 (older
+    launchers used it; the game never reads it) move to quest3/quest1. Every pack we change
+    is closed up so it has no gaps. Returns (added, updated, removed, notes)."""
     save_dir = Path(save_dir)
     packs = {}
-    for name in EVENT_PACKS:
-        data = bytearray((save_dir / name).read_bytes())
+    for name in EVENT_PACKS + OLD_EVENT_PACKS + (CHALLENGE_PACK,):
+        path = save_dir / name
+        if name not in EVENT_PACKS and not path.is_file():
+            continue
+        data = bytearray(path.read_bytes())
         if len(data) < PACK_HEADER + PACK_SLOTS * PACK_SLOT:
             return 0, 0, 0, [T("{name} looks damaged; left alone", name=name)]
         packs[name] = data
+    before = {name: bytes(data) for name, data in packs.items()}
     notes = []
     added = updated = removed = 0
-    # Forget slots that no longer hold exactly what we wrote (the player changed them).
+    # Forget slots that no longer hold exactly what we wrote (the player changed them). A
+    # quest that only moved (Quest Studio closes gaps and has "Move to") is found again by
+    # its fingerprint.
+    sums = {f"{n}/{i}": hashlib.sha256(_slot(packs[n], i)).hexdigest()
+            for n in packs for i in range(PACK_SLOTS)}
     for key, info in list(owned.items()):
-        name, _, idx = key.partition("/")
-        if (name not in packs or not idx.isdigit() or int(idx) >= PACK_SLOTS
-                or hashlib.sha256(_slot(packs[name], int(idx))).hexdigest() != info.get("sha256")):
-            del owned[key]
-    placed = set()
+        if sums.get(key) == info.get("sha256"):
+            continue
+        del owned[key]
+        moved = next((k for k, s in sums.items() if s == info.get("sha256") and k not in owned
+                      and any(_slot(packs[k.partition("/")[0]], int(k.partition("/")[2])))), None)
+        if moved:
+            owned[moved] = info
+    placed, moving = set(), set()
     for key, info in list(owned.items()):
         name, _, idx = key.partition("/")
         o = PACK_HEADER + int(idx) * PACK_SLOT
         no = info.get("no")
+        if name in OLD_EVENT_PACKS:                   # never shown there: move it
+            rec = bytes(packs[name][o:o + PACK_DATA]).rstrip(b"\0")
+            packs[name][o:o + PACK_SLOT] = bytes(PACK_SLOT)
+            del owned[key]
+            if no not in quests and no in keep:      # source unreadable: move our copy
+                quests = dict(quests)
+                quests[no] = rec
+            if no in quests:
+                moving.add(no)
+            continue
+        if no not in quests and no in keep and no not in placed:
+            placed.add(no)
+            continue
         if no not in quests or no in placed:          # event over (or a duplicate)
             packs[name][o:o + PACK_SLOT] = bytes(PACK_SLOT)
             del owned[key]
@@ -659,19 +723,23 @@ def sync_event_packs(save_dir, quests, owned):
             info["sha256"] = hashlib.sha256(new).hexdigest()
             updated += 1
         placed.add(no)
-    # Quest numbers already in the packs that aren't ours (the player added them).
-    theirs = set()
-    for name, data in packs.items():
+    # Quest numbers the player already has where the game shows them (not ours), per pack.
+    theirs = {}
+    for name in EVENT_PACKS + (CHALLENGE_PACK,):
+        theirs[name] = set()
+        if name not in packs:
+            continue
         for i in range(PACK_SLOTS):
             key = f"{name}/{i}"
-            if key not in owned and _slot(data, i)[:4] == b"QTDS":
-                theirs.add(quest_record_no(_slot(data, i)))
+            if key not in owned and _slot(packs[name], i)[:4] == b"QTDS":
+                theirs[name].add(quest_record_no(_slot(packs[name], i)))
     for no in sorted(set(quests) - placed):
-        if no in theirs:
-            notes.append(T("quest {no} is already in your packs (not added by the launcher); left alone",
-                          no=no))
+        if any(no in theirs[p] for p in target_packs(no)):
+            if no not in GAME_EVENT_NOS + CHALLENGE_NOS:   # Capcom's: many have the old downloads
+                notes.append(T("quest {no} is already in your packs (not added by the launcher); "
+                               "left alone", no=no))
             continue
-        free = next(((n, i) for n in EVENT_PACKS for i in range(PACK_SLOTS)
+        free = next(((n, i) for n in target_packs(no) if n in packs for i in range(PACK_SLOTS)
                      if f"{n}/{i}" not in owned and not any(_slot(packs[n], i))), None)
         if free is None:
             notes.append(T("no free event quest slot for quest {no}", no=no))
@@ -681,10 +749,21 @@ def sync_event_packs(save_dir, quests, owned):
         o = PACK_HEADER + i * PACK_SLOT
         packs[name][o:o + PACK_SLOT] = new
         owned[f"{name}/{i}"] = {"no": no, "sha256": hashlib.sha256(new).hexdigest()}
-        added += 1
-    for name in EVENT_PACKS:
+        if no in moving:
+            updated += 1
+        else:
+            added += 1
+    # Close up the gaps in every pack we changed or that holds one of our quests behind a gap.
+    for name in EVENT_PACKS + ((CHALLENGE_PACK,) if CHALLENGE_PACK in packs else ()):
+        ours = any(k.partition("/")[0] == name for k in owned)
+        if _has_gap(packs[name]) and (bytes(packs[name]) != before[name] or ours):
+            moves = _compact(packs[name])
+            mine = {k: owned.pop(k) for k in [k for k in owned if k.partition("/")[0] == name]}
+            for key, info in mine.items():
+                owned[f"{name}/{moves[int(key.partition('/')[2])]}"] = info
+    for name in packs:
         path = save_dir / name
-        if bytes(packs[name]) == path.read_bytes():
+        if bytes(packs[name]) == before[name]:
             continue
         bak = save_dir / (name + ".revival_backup")
         if not bak.exists():
@@ -695,9 +774,191 @@ def sync_event_packs(save_dir, quests, owned):
     return added, updated, removed, notes
 
 
+# ---------------------------------------------------------------------------
+# Capcom's event quests, from the player's own game
+#
+# The US and EU games carry Capcom's old downloadable quests in
+# content/nativeCafe/quest/us (and /eu, identical) but never list them: players had to
+# download them. That download (Capcom's server, now the goshawk replacement servers) was
+# exactly these 28 event quests plus the 10 Challenge Quests (61000-61009). The launcher
+# copies all 38 from the player's own game into the save (event quests into quest3/quest1,
+# Challenge Quests into quest4), beside the official ones, so nothing from the game is
+# redistributed. The nine collab quests are left out (their Western copies are placeholders
+# named DUMMY). The Japanese game already lists all of its event quests.
+# ---------------------------------------------------------------------------
+GAME_EVENT_NOS = (20102, 20103, 20104,                                          # low rank
+                  20201, 20202, 20203, 20205, 20209, 20210,                     # high rank
+                  20302, 20303, 20306, 20307, 20309, 20310, 20311, 20312, 20314,
+                  20315, 20316, 20317, 20318, 20319, 20320, 20321, 20322, 20323, 20324)  # G
+WEST_GAME_TITLES = ("10118300", "10117200")       # US, EU
+
+
+def settings_entries(text, tag):
+    """The <Entry> values inside <tag> of Cemu's settings.xml text."""
+    m = re.search(r"<%s>(.*?)</%s>" % (tag, tag), text, re.S)
+    if not m:
+        return []
+    return [html.unescape(e.strip()) for e in re.findall(r"<Entry>(.*?)</Entry>", m.group(1), re.S)]
+
+
+def game_title_of(folder):
+    """The last 8 hex digits of an unpacked game folder's title id (meta/meta.xml), or None."""
+    try:
+        text = (Path(folder) / "meta" / "meta.xml").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    m = re.search(r"<title_id[^>]*>\s*([0-9A-Fa-f]{16})\s*<", text)
+    return m.group(1)[8:].lower() if m else None
+
+
+def find_west_game(root):
+    """The quest folder of a US or EU game this bundle's Cemu knows about, or None. Looks
+    in Cemu's own mlc01, then the recently launched games, then the Game Paths (two folders
+    deep). Only unpacked games count (code/content/meta folders, not .wua/.wud files)."""
+    root = Path(root)
+    cands = [root / "portable" / "mlc01" / "usr" / "title" / "00050000" / t for t in WEST_GAME_TITLES]
+    try:
+        text = (root / CEMU_SETTINGS_REL).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    for p in settings_entries(text, "RecentLaunchFiles"):
+        p = Path(p)
+        cands += [p, p.parent, p.parent.parent]          # a game folder, title.tmd or code/x.rpx
+    for p in settings_entries(text, "GamePaths"):
+        level = [Path(p)]
+        for _ in range(3):
+            cands += level
+            nxt = []
+            for d in level:
+                try:
+                    nxt += [e for e in d.iterdir() if e.is_dir()][:200]
+                except OSError:
+                    pass
+            level = nxt[:400]
+    seen = set()
+    for c in cands:
+        key = os.path.normcase(str(c))
+        if key in seen:
+            continue
+        seen.add(key)
+        qdir = c / "content" / "nativeCafe" / "quest"
+        if game_title_of(c) in WEST_GAME_TITLES and qdir.is_dir():
+            return qdir
+    return None
+
+
+def game_event_quests(qdir):
+    """{number: record} of the GAME_EVENT_NOS and CHALLENGE_NOS quests in a game's quest
+    folder ({} if None). A file that isn't that quest, or is a DUMMY placeholder, is skipped."""
+    out = {}
+    if qdir is None:
+        return out
+    for no in GAME_EVENT_NOS + CHALLENGE_NOS:
+        for sub in ("us", "eu"):
+            try:
+                rec = (Path(qdir) / sub / f"q_{no:05d}.quest").read_bytes()
+            except OSError:
+                continue
+            n = int.from_bytes(rec[8:12], "little") if len(rec) >= 12 else 0
+            if (quest_record_no(rec) == no and len(rec) <= PACK_DATA
+                    and not rec[12:12 + n].upper().startswith(b"DUMMY")):
+                out[no] = rec
+                break
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Graphic packs the launcher keeps switched on
+#
+# The bundle ships these in portable/graphicPacks. Before starting Cemu the launcher makes
+# sure each is enabled in Cemu's settings.xml (an update replaces that file, and a player
+# may untick the pack in Cemu). MH3U_EventQuestFix: without it the Japanese and US/EU games
+# crash on each other's event quests, and it only protects the player who has it.
+# ---------------------------------------------------------------------------
+ALWAYS_ON_PACKS = ("MH3U_EventQuestFix",)
+
+
+def enable_pack_entry(text, pack):
+    """Cemu settings.xml text with graphicPacks/<pack>/rules.txt switched on (the same text
+    if it already is), or None if there is no <GraphicPack> section to put it in."""
+    name = f"graphicPacks/{pack}/rules.txt"
+    nl = "\r\n" if "\r\n" in text else "\n"
+    m = re.search(r'<Entry\s+filename="%s"([^>]*?)(/?)>' % re.escape(name), text, re.I)
+    if m:                                         # listed: drop a disabled="true"
+        attrs = re.sub(r'\s+disabled="[^"]*"', "", m.group(1))
+        return text[:m.start()] + f'<Entry filename="{name}"{attrs}{m.group(2)}>' + text[m.end():]
+    m = re.search(r"([ \t]*)<GraphicPack\s*/>", text)
+    if m:                                         # an empty section
+        ind = m.group(1)
+        return (text[:m.start()] + f'{ind}<GraphicPack>{nl}{ind}    <Entry filename="{name}"/>{nl}'
+                f'{ind}</GraphicPack>' + text[m.end():])
+    m = re.search(r"\r?\n([ \t]*)</GraphicPack>", text)
+    if m:
+        ind = m.group(1)
+        return text[:m.start()] + f'{nl}{ind}    <Entry filename="{name}"/>' + text[m.start():]
+    return None
+
+
+def ensure_packs_enabled(root, log=print):
+    """Switch on every ALWAYS_ON_PACKS pack that is in this bundle (not while Cemu is open:
+    it writes settings.xml when it closes)."""
+    root = Path(root)
+    path = root / CEMU_SETTINGS_REL
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return
+    new = text
+    for pack in ALWAYS_ON_PACKS:
+        if (root / PACKS_REL / pack / "rules.txt").is_file():
+            out = enable_pack_entry(new, pack)
+            if out is not None and out != new:
+                new = out
+                log(T("[MH3U Online] Turned on the graphic pack {pack}.", pack=pack))
+    if new != text:
+        tmp = path.with_name(path.name + ".revival_tmp")
+        tmp.write_bytes(new.encode("utf-8"))
+        os.replace(tmp, path)
+
+
+EVENT_FIX_ASM = os.path.join(PACKS_REL, "MH3U_EventQuestFix", "patch_eventquest.asm")
+
+
+def localize_event_fix(root, qdir, log=print):
+    """Rebuild the event quest fix's name tables from the player's US/EU quest folder
+    `qdir` (see eventfix_names.py). The bundle ships the pack with our nine names only;
+    an update puts that copy back, and the next launch redoes this."""
+    path = Path(root) / EVENT_FIX_ASM
+    if qdir is None or eventfix_names is None or not path.is_file():
+        return
+    asm = path.read_bytes().decode("ascii")
+    new = eventfix_names.localize(asm, qdir)
+    if new != asm:
+        tmp = path.with_name(path.name + ".revival_tmp")
+        tmp.write_bytes(new.encode("ascii"))
+        os.replace(tmp, path)
+        log(T("[MH3U Online] Added the quest names from your game to the event quest fix."))
+
+
+def prepare_packs(root, log=print):
+    """Before Cemu starts: names into the event quest fix, then the always-on packs on.
+    Skipped while Cemu is already open. Never blocks playing."""
+    if is_running(CEMU_EXE):
+        return
+    try:
+        localize_event_fix(root, find_west_game(root), log)
+    except Exception as e:
+        log(T("[MH3U Online] Couldn't add quest names to the event quest fix ({err}).", err=e))
+    try:
+        ensure_packs_enabled(root, log)
+    except Exception as e:
+        log(T("[MH3U Online] Couldn't turn on the graphic packs ({err}).", err=e))
+
+
 def install_event_quests(root, log=print, fetch=True):
-    """Download the official event quests and put them into every US/EU save in this
-    bundle. Never runs while Cemu is open (the game would overwrite the packs)."""
+    """Put the official event quests (downloaded) and Capcom's event quests (from the
+    player's own US/EU game) into every US/EU save in this bundle. Never runs while Cemu
+    is open (the game would overwrite the packs)."""
     root = Path(root)
     if is_running(CEMU_EXE):
         log(T("[Events] Cemu is open; close it to update the event quests."))
@@ -705,9 +966,15 @@ def install_event_quests(root, log=print, fetch=True):
     saves = event_save_dirs(root)
     if not saves:
         return              # no save yet: the game creates the packs on its first save
-    quests = load_event_quests(root, fetch=fetch, log=log)
-    if quests is None:
+    official = load_event_quests(root, fetch=fetch, log=log)
+    game = game_event_quests(find_west_game(root))
+    if not game:
+        log(T("[Events] Couldn't find your US/EU game's files, so Capcom's event quests "
+              "weren't added this time."))
+    if official is None and not game:
         return
+    quests = dict(official or {})
+    quests.update(game)
     state_path = root / EVENTS_STATE_REL
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -718,8 +985,14 @@ def install_event_quests(root, log=print, fetch=True):
     for save in saves:
         key = str(save.relative_to(root)).replace("\\", "/")
         owned = state.setdefault(key, {})
+        keep = set()
+        if official is None:        # no list yet: the official quests already in place stay
+            keep |= {i.get("no") for i in owned.values() if isinstance(i.get("no"), int)
+                     and event_number_ok(i["no"])}
+        if not game:                # game not found this time: Capcom's quests stay
+            keep |= set(GAME_EVENT_NOS + CHALLENGE_NOS)
         try:
-            added, updated, removed, notes = sync_event_packs(save, quests, owned)
+            added, updated, removed, notes = sync_event_packs(save, quests, owned, keep)
         except OSError as e:
             log(T("[Events] Couldn't update the event quests in {key} ({err}).", key=key, err=e))
             continue
@@ -894,7 +1167,8 @@ def run_join_flow(root, host_ip, launch=True, log=print, host_label=None):
       1. game-dump presence check (guidance if missing)
       2. mint OR repair account.dat (identical format + repair semantics)
       3. write host IP to mh3u_server.txt
-      4. launch Cemu_release.exe (unless launch=False or MH3U_NOLAUNCH=1)
+      4. quest names into the event quest fix + switch on the always-on graphic packs
+      5. launch Cemu_release.exe (unless launch=False or MH3U_NOLAUNCH=1)
 
     `log` is a callable taking one string (so the GUI can stream it). Returns
     True on success (Cemu launched or launch suppressed)."""
@@ -939,7 +1213,10 @@ def run_join_flow(root, host_ip, launch=True, log=print, host_label=None):
     else:
         log(T("[MH3U Online] WARNING: no host IP set — enter the host's IP and Save first."))
 
-    # 4) launch Cemu
+    # 4) graphic packs the bundle keeps on (the cross-version event quest fix)
+    prepare_packs(root, log)
+
+    # 5) launch Cemu
     if not launch or os.environ.get("MH3U_NOLAUNCH") == "1":
         log(T("[MH3U Online] (launch suppressed)"))
         return True
@@ -1383,6 +1660,143 @@ def _selftest():
         check(load_event_quests(tmp, fetch=False, log=lambda s: None) == {20350: good},
               "offline start uses the cached event quests")
         check(is_protected_path(EVENTS_STATE_REL), "event slot ownership is protected")
+
+        print("== Capcom's event quests from the player's game ==")
+        def dummy_rec(no):
+            names = b"".join(len(t).to_bytes(4, "little") + t for t in [b"DUMMY"] * 5)
+            return b"QTDS" + (5).to_bytes(4, "little") + names + no.to_bytes(2, "little") + bytes(40)
+        game = tmp / "games" / "MH3U [0005000010118300]"
+        qdir = game / "content" / "nativeCafe" / "quest"
+        (qdir / "us").mkdir(parents=True)
+        (game / "meta").mkdir()
+        (game / "meta" / "meta.xml").write_text(
+            '<?xml version="1.0"?><menu><title_id type="hexBinary" length="8">0005000010118300'
+            '</title_id></menu>', encoding="utf-8")
+        (qdir / "us" / "q_20102.quest").write_bytes(qrec(20102, b"capcom 20102"))
+        (qdir / "us" / "q_20103.quest").write_bytes(qrec(20999))          # wrong number inside
+        (qdir / "us" / "q_20204.quest").write_bytes(dummy_rec(20204))      # collab placeholder
+        (qdir / "us" / "q_20310.quest").write_bytes(dummy_rec(20310))
+        got = game_event_quests(qdir)
+        (qdir / "us" / "q_61003.quest").write_bytes(qrec(61003, b"challenge 4"))
+        got = game_event_quests(qdir)
+        check(sorted(got) == [20102, 61003] and got[20102] == qrec(20102, b"capcom 20102"),
+              "real Capcom event + Challenge quests are read (wrong number, DUMMY skipped)")
+        (qdir / "us" / "q_61003.quest").unlink()
+        got = game_event_quests(qdir)
+        check(find_west_game(tmp) is None, "no settings -> game not found")
+        cs = tmp / CEMU_SETTINGS_REL
+        cs.write_text('<content>\n    <GamePaths>\n        <Entry>%s</Entry>\n    </GamePaths>\n'
+                      '    <GraphicPack/>\n</content>\n' % (tmp / "games").as_posix(), encoding="utf-8")
+        check(find_west_game(tmp) == qdir, "found through Cemu's Game Paths")
+        cs.write_text('<content>\n    <RecentLaunchFiles>\n        <Entry>%s</Entry>\n'
+                      '    </RecentLaunchFiles>\n</content>\n'
+                      % (game / "code" / "x.rpx").as_posix(), encoding="utf-8")
+        check(find_west_game(tmp) == qdir, "found through a recently launched rpx")
+        for n in EVENT_PACKS:
+            (save / n).write_bytes(pack())
+        (save / "quest1").write_bytes(pack({0: (qrec(20103, b"old download"), 20103)}))
+        owned = {}
+        a, u, r, notes = sync_event_packs(save, {20102: got[20102], 20103: qrec(20103)}, owned)
+        check((a, r) == (1, 0) and not notes, "adds 20102; a downloaded 20103 stays, without a note")
+        a, u, r, _ = sync_event_packs(save, {}, owned, keep=set(GAME_EVENT_NOS))
+        check((a, u, r) == (0, 0, 0) and len(owned) == 1, "game not found -> its quests stay")
+        a, u, r, _ = sync_event_packs(save, {}, owned)
+        check(r == 1 and not owned, "no longer wanted -> removed")
+
+        print("== only quest1/quest3, no gaps ==")
+        def nos(n, k=4):
+            d = (save / n).read_bytes()
+            return [quest_record_no(_slot(d, i)) if _slot(d, i)[:4] == b"QTDS" else None for i in range(k)]
+        def slot_sha(rec, no):
+            return hashlib.sha256(_slot_record(rec, no)).hexdigest()
+        for n in EVENT_PACKS + OLD_EVENT_PACKS + ("quest4",):
+            (save / n).write_bytes(pack())
+        (save / "quest2").write_bytes(pack({0: (qrec(20102, b"player"), 20102)}))
+        owned = {}
+        a, u, r, _ = sync_event_packs(save, {20102: got[20102], 20250: qrec(20250), 20350: qrec(20350)}, owned)
+        check(a == 3 and nos("quest3") == [20102, 20250, 20350, None] and nos("quest2")[0] == 20102,
+              "a quest the player has only in quest2 (never shown) is still added; quest2 untouched")
+        a, u, r, _ = sync_event_packs(save, {20102: got[20102], 20350: qrec(20350)}, owned)
+        check(r == 1 and nos("quest3") == [20102, 20350, None, None]
+              and set(owned) == {"quest3/0", "quest3/1"}, "removing a quest closes the gap")
+        (save / "quest3").write_bytes(pack({2: (qrec(20360, b"player"), 20360)}))
+        owned = {}
+        sync_event_packs(save, {20350: qrec(20350)}, owned)
+        check(nos("quest3") == [20350, 20360, None, None] and list(owned) == ["quest3/0"]
+              and _slot((save / "quest3").read_bytes(), 1) == _slot_record(qrec(20360, b"player"), 20360),
+              "a player's quest behind a gap moves up, unchanged")
+        for n in EVENT_PACKS + OLD_EVENT_PACKS:
+            (save / n).write_bytes(pack())
+        (save / "quest4").write_bytes(pack({0: (qrec(61001, b"player's CQ2"), 61001)}))
+        owned = {}
+        a, u, r, notes = sync_event_packs(save, {61000: qrec(61000), 61001: qrec(61001), 20102: got[20102]}, owned)
+        check(a == 2 and nos("quest4") == [61001, 61000, None, None] and nos("quest3")[0] == 20102
+              and not notes, "Challenge Quests go into quest4 only; the player's own CQ2 stays")
+        (save / "quest4").write_bytes(pack())
+        owned = {"quest3/2": {"no": 20350, "sha256": slot_sha(qrec(20350), 20350)}}
+        (save / "quest3").write_bytes(pack({0: (qrec(20350), 20350)}))   # Quest Studio moved it up
+        a, u, r, _ = sync_event_packs(save, {20350: qrec(20350, b"v2")}, owned)
+        check((a, u, r) == (0, 1, 0) and list(owned) == ["quest3/0"]
+              and _slot((save / "quest3").read_bytes(), 0) == _slot_record(qrec(20350, b"v2"), 20350),
+              "a quest of ours moved by Quest Studio is found again and still updated")
+        (save / "quest2").write_bytes(pack({3: (qrec(20150), 20150)}))
+        (save / "quest3").write_bytes(pack())
+        owned = {"quest2/3": {"no": 20150, "sha256": slot_sha(qrec(20150), 20150)}}
+        a, u, r, _ = sync_event_packs(save, {20150: qrec(20150)}, owned)
+        check((a, u, r) == (0, 1, 0) and list(owned) == ["quest3/0"] and nos("quest2") == [None] * 4,
+              "an older launcher's quest in quest2 moves to quest3")
+        (save / "quest2").write_bytes(pack({0: (qrec(20102), 20102)}))
+        (save / "quest3").write_bytes(pack())
+        owned = {"quest2/0": {"no": 20102, "sha256": slot_sha(qrec(20102), 20102)}}
+        sync_event_packs(save, {}, owned, keep=set(GAME_EVENT_NOS))
+        check(list(owned) == ["quest3/0"]
+              and _slot((save / "quest3").read_bytes(), 0) == _slot_record(qrec(20102), 20102),
+              "game files unreadable: our quest2 copy still moves, unchanged")
+
+        print("== always-on graphic packs ==")
+        fix = f'<Entry filename="graphicPacks/{ALWAYS_ON_PACKS[0]}/rules.txt"/>'
+        empty = "<content>\n    <GraphicPack/>\n    <Graphic/>\n</content>\n"
+        out = enable_pack_entry(empty, ALWAYS_ON_PACKS[0])
+        check(out == "<content>\n    <GraphicPack>\n        " + fix + "\n    </GraphicPack>\n"
+              "    <Graphic/>\n</content>\n", "added to an empty <GraphicPack/>")
+        listed = ('<c>\r\n    <GraphicPack>\r\n        <Entry filename="graphicPacks/A/rules.txt">\r\n'
+                  '            <Preset/>\r\n        </Entry>\r\n    </GraphicPack>\r\n</c>\r\n')
+        out = enable_pack_entry(listed, ALWAYS_ON_PACKS[0])
+        check(out == listed.replace("        </Entry>\r\n", "        </Entry>\r\n        " + fix + "\r\n"),
+              "added after the other packs, keeping CRLF")
+        check(enable_pack_entry(out, ALWAYS_ON_PACKS[0]) == out, "already on -> unchanged")
+        off = out.replace(fix, fix[:-2] + ' disabled="true"/>')
+        check(enable_pack_entry(off, ALWAYS_ON_PACKS[0]) == out, "disabled=\"true\" removed")
+        check(enable_pack_entry("<content/>", ALWAYS_ON_PACKS[0]) is None, "no section -> None")
+        cs.write_text(empty, encoding="utf-8")
+        ensure_packs_enabled(tmp, log=lambda s: None)
+        check(cs.read_text(encoding="utf-8") == empty, "pack not in the bundle -> settings untouched")
+        pdir = tmp / PACKS_REL / ALWAYS_ON_PACKS[0]
+        pdir.mkdir(parents=True)
+        (pdir / "rules.txt").write_text("[Definition]\n", encoding="utf-8")
+        lines = []
+        ensure_packs_enabled(tmp, log=lines.append)
+        check(fix in cs.read_text(encoding="utf-8") and len(lines) == 1, "pack in the bundle -> turned on")
+        check(eventfix_names is not None, "eventfix_names module present (bundled into the exe)")
+        if eventfix_names is not None:
+            shipped = ("x\n_eqfUNames:\n.int 0\n.align 4\n\n0x02070000 = nop\n"
+                       "_eqfENames:\n.int 0\n.align 4\n\ny\n")
+            check(eventfix_names.localize(shipped.replace("\n", "\r\n"), qdir)
+                  == eventfix_names.localize(shipped, qdir).replace("\n", "\r\n"),
+                  "event fix names: a CRLF copy of the pack keeps CRLF")
+            (pdir / "patch_eventquest.asm").write_bytes(shipped.encode("ascii"))
+            (qdir / "us" / "q_20102.quest").write_bytes(b"QTDS" + (5).to_bytes(4, "little") + b"".join(
+                len(t).to_bytes(4, "little") + t for t in [b"Streaking"] * 5) + (20102).to_bytes(2, "little")
+                + b"".join((len(t).to_bytes(4, "little") + t) * 5 + bytes(2) for t in (b"Slay", b"", b"Fail"))
+                + bytes(4) + b"".join(len(t).to_bytes(4, "little") + t for t in [b"Client"] * 5 + [b"Desc"] * 5))
+            localize_event_fix(tmp, qdir, log=lines.append)
+            asm = (pdir / "patch_eventquest.asm").read_text(encoding="ascii")
+            check(asm.count(".int 10\n") == 2 and asm.count(".int 0x4E86,") == 2
+                  and asm.startswith("x\n") and "0x02070000 = nop\n" in asm and asm.endswith("y\n"),
+                  "event fix names: 20102 from the game + our 9, rest of the pack kept")
+            localize_event_fix(tmp, qdir, log=lines.append)
+            check((pdir / "patch_eventquest.asm").read_text(encoding="ascii") == asm and len(lines) == 2,
+                  "event fix names: second run changes nothing")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

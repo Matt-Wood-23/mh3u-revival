@@ -356,10 +356,52 @@ def test_sessions_keep_the_place_and_the_report_counts_it(geo, tmp_path, monkeyp
     assert "cc" not in s[4] and not any("ip" in r or "8.8.8.8" in json.dumps(r)
                                         for r in records(tmp_path))
     w = metrics.build_report(records(tmp_path), T0 + 4000, days=0)["where"]
-    assert w["countries"] == [{"cc": "US", "players": 2, "hours": 2.0},
-                              {"cc": "GB", "players": 1, "hours": 1.0}]
+    none = {"ping": None, "pinged": 0, "link_s": None, "links": 0, "links_ok": 0}
+    assert w["countries"] == [{"cc": "US", "players": 2, "hours": 2.0, **none},
+                              {"cc": "GB", "players": 1, "hours": 1.0, **none}]
     assert w["regions"][0] == {"cc": "US", "region": "California", "players": 2}
     assert (w["located"], w["unlocated"], w["region_count"]) == (3, 1, 2)
+
+
+def test_report_gives_ping_and_room_links_per_country_and_player(rec, tmp_path):
+    for pid, name, place, ms in ((1, "Mira", ("US", "Texas"), 40),
+                                 (2, "Sam", ("FR", "Brittany"), 110),
+                                 (3, "Lou", ("FR", "Brittany"), 120),
+                                 (4, "Kai", None, None)):
+        rec.login(pid, T0, place)
+        rec.presence(pid, status(name), T0)
+        if ms:
+            rec.rtt(pid, ms, T0)
+    rec.room_created(0x1001, 1, T0)
+    rec.room_joined(0x1001, 2, T0 + 10)
+    rec.probe(2, 1, True, T0 + 11)
+    rec.link_result(2, 1, True, T0 + 13)         # US-FR, up in 2 s
+    rec.room_joined(0x1001, 3, T0 + 20)
+    rec.probe(3, 1, True, T0 + 21)
+    rec.probe(3, 2, True, T0 + 21)
+    rec.link_result(3, 1, True, T0 + 25)         # US-FR, up in 4 s
+    rec.link_result(3, 2, False, T0 + 30)        # FR-FR, failed: counts once for France
+    for pid in (1, 2, 3, 4):
+        rec.logout(pid, T0 + 3600)
+    w = metrics.build_report(records(tmp_path), T0 + 4000, days=0)["where"]
+    c = {r["cc"]: r for r in w["countries"]}
+    assert (c["FR"]["players"], c["FR"]["ping"], c["FR"]["pinged"]) == (2, 115, 2)
+    assert (c["FR"]["links"], c["FR"]["links_ok"], c["FR"]["link_s"]) == (3, 2, 3.0)
+    assert (c["US"]["ping"], c["US"]["links"], c["US"]["links_ok"], c["US"]["link_s"]) == \
+        (40, 2, 2, 3.0)
+    got = [(r["name"], r["cc"], r["region"], r["ping"], r["links"], r["links_ok"], r["link_s"])
+           for r in w["by_player"]]
+    assert got == [("Sam", "FR", "Brittany", 110, 2, 1, 2.0),
+                   ("Lou", "FR", "Brittany", 120, 2, 1, 4.0),
+                   ("Mira", "US", "Texas", 40, 2, 2, 3.0),
+                   ("Kai", None, "", None, 0, 0, None)]
+
+
+def test_admin_page_carries_the_world_map():
+    import admin_page
+    from admin_world import WORLD
+    assert "__WORLD__" not in admin_page.PAGE
+    assert {"US", "FR", "BR", "JP"} <= set(WORLD["shapes"]) and "SG" in WORLD["points"]
 
 
 def _backfill_module():

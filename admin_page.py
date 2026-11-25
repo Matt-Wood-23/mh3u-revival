@@ -5,7 +5,12 @@ the same port.
 
 Open it from your own PC through SSH, e.g.
     ssh -N -L 18081:127.0.0.1:8081 <user>@<server>     then http://localhost:18081/
+
+The Metrics section's world map comes from admin_world.py (deploy/world_map_build.py).
 """
+import json
+
+from admin_world import WORLD
 
 PAGE = """<!doctype html>
 <html lang="en">
@@ -106,6 +111,15 @@ PAGE = """<!doctype html>
          max-width:260px; }
   .tip strong { display:block; font-size:14px; color:var(--text); }
   .tip .tl { color:var(--dim); }
+  .map { margin:4px 0 16px; }
+  .map svg { display:block; width:100%; height:auto; }
+  .map .land { fill:var(--grid); stroke:var(--panel); stroke-width:.6px;
+               vector-effect:non-scaling-stroke; }
+  .map .land.on { fill:#424654; }
+  .map .hit { fill:transparent; outline:none; }
+  .map .hit:hover, .map .hit:focus { fill:rgba(255,255,255,.10); }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
+  details { margin-bottom:12px; }
 </style>
 </head>
 <body>
@@ -218,11 +232,24 @@ PAGE = """<!doctype html>
 
     <section>
       <h2>Where players are</h2>
+      <div class="note">Ping is each player's usual round trip to the server, as the game measures
+        it when it goes online. A room link is a player linking up with another player after a
+        join; link time is how long that took.</div>
+      <div class="legend" id="maplegend"></div>
+      <div class="map" id="map"></div>
       <div class="grid2">
-        <div><h3>Players per country</h3><div class="bars" id="countries"></div></div>
+        <div><h3>Countries</h3><div class="scroll"><table>
+          <thead><tr><th>Country</th><th class="num">Players</th><th class="num">Ping</th>
+            <th class="num">Room links up</th><th class="num">Link time</th></tr></thead>
+          <tbody id="countries"></tbody></table></div>
+          <div class="empty" id="nocountries" hidden>No located players in this period.</div></div>
         <div><h3>Players per state / province</h3><div class="bars" id="regions"></div></div>
       </div>
       <div class="note geonote" id="geonote"></div>
+      <details><summary>Every player: ping and room links</summary><div class="scroll"><table>
+        <thead><tr><th>Hunter</th><th>Country</th><th>State / province</th><th class="num">Ping</th>
+          <th class="num">Room links up</th><th class="num">Link time</th></tr></thead>
+        <tbody id="pingplayers"></tbody></table></div></details>
       <div class="grid3">
         <div><h3>Players per hall</h3><div class="bars" id="halls"></div></div>
         <div><h3>Round trip to the server (per player)</h3><div class="bars" id="rtt"></div>
@@ -373,6 +400,13 @@ setInterval(refresh, 5000);
 const S1 = "#3987e5", S2 = "#d95926", GRID = "#33363f", BASE = "#4a4d58";
 const HEAT = ["#184f95", "#1c5cab", "#2a78d6", "#5598e7", "#86b6ef", "#b7d3f6"];
 const ZERO = "#30333b";
+// Ping, one orange ramp step per band (dark = close, light = far; validated for this surface).
+const PING = [[50, "Under 50 ms", "#b53e01"], [100, "50-100 ms", "#d95926"],
+              [150, "100-150 ms", "#fb7747"], [250, "150-250 ms", "#fea98c"],
+              [Infinity, "250 ms or more", "#ffd5c7"]];
+const NOPING = "#6b6e78", PANEL = "#272930";
+const pingColor = (ms) => (ms == null ? NOPING : PING.find((b) => ms < b[0])[2]);
+const WORLD = __WORLD__;
 const WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MX = { days: 30, data: null, top: 5 };
 
@@ -622,6 +656,65 @@ function geoNote(box, w) {
   box.append(t + " ", a);
 }
 
+const links = (r) => (r.links ? r.links_ok + " of " + r.links : "");
+const linkTime = (r) => (r.link_s == null ? "" : r.link_s.toFixed(1) + " s");
+
+function pingCell(ms) {
+  const td = el("td", null, "num");
+  if (ms == null) return td;
+  const d = el("i", null, "dot");
+  d.style.background = pingColor(ms);
+  td.append(d, ms + " ms");
+  return td;
+}
+
+// One circle per country: area = players, colour = their median ping.
+function worldMap(box, legend, rows) {
+  box.replaceChildren();
+  legend.replaceChildren();
+  for (const [, label, color] of PING) {
+    const s = el("span", label);
+    const i = el("i");
+    i.style.background = color;
+    s.prepend(i);
+    legend.append(s);
+  }
+  const np = el("span", "No ping recorded");
+  const ni = el("i");
+  ni.style.background = NOPING;
+  np.prepend(ni);
+  legend.append(np, el("span", "Circle size: players"));
+  const W = WORLD.w, H = WORLD.h;
+  const u = W / Math.max(240, box.clientWidth);         // viewBox units per screen pixel
+  const s = svg("svg", { viewBox: "0 0 " + W + " " + H, role: "img",
+                         "aria-label": "World map: players and ping per country" });
+  const here = new Set(rows.map((r) => r.cc));
+  for (const cc in WORLD.shapes)
+    s.append(svg("path", { d: WORLD.shapes[cc], class: here.has(cc) ? "land on" : "land" }));
+  const max = Math.max(1, ...rows.map((r) => r.players));
+  const placed = rows.filter((r) => WORLD.points[r.cc])
+    .sort((a, b) => b.players - a.players);             // small circles drawn on top
+  for (const r of placed) {
+    const [x, y] = WORLD.points[r.cc];
+    const rad = (4 + 11 * Math.sqrt(r.players / max)) * u;
+    s.append(svg("circle", { cx: x, cy: y, r: rad, fill: pingColor(r.ping),
+                             stroke: PANEL, "stroke-width": 2 * u }));
+  }
+  for (const r of placed) {                             // hit targets above every circle
+    const [x, y] = WORLD.points[r.cc];
+    const rad = (4 + 11 * Math.sqrt(r.players / max)) * u;
+    const hit = svg("circle", { cx: x, cy: y, r: rad + 5 * u, class: "hit" });
+    hover(hit, () => [countryName(r.cc) + ": " + plural(r.players, "player"),
+      (r.ping == null ? "No ping recorded" : "Ping " + r.ping + " ms" +
+        (r.pinged < r.players ? " (" + r.pinged + " measured)" : "")) +
+      (r.links ? " · room links " + links(r) + " up" +
+        (r.link_s == null ? "" : ", usually " + linkTime(r)) : "") +
+      " · " + hrs(r.hours) + " played"]);
+    s.append(hit);
+  }
+  box.append(s);
+}
+
 function tiles(box, items) {            // [label, value, note]
   box.replaceChildren();
   for (const [label, value, note] of items) {
@@ -714,9 +807,26 @@ function renderMetrics() {
   }
   $("notrouble").hidden = h.trouble.length > 0;
 
-  const w = d.where;
-  barList($("countries"), (w.countries || []).map((r) => [countryName(r.cc), r.players]),
-          (v) => plural(v, "player"));
+  const w = d.where, ctry = w.countries || [];
+  worldMap($("map"), $("maplegend"), ctry);
+  const ct = $("countries");
+  ct.replaceChildren();
+  for (const r of ctry) {
+    const tr = document.createElement("tr");
+    tr.append(el("td", countryName(r.cc)), el("td", r.players, "num"), pingCell(r.ping),
+              el("td", links(r), "num"), el("td", linkTime(r), "num"));
+    ct.append(tr);
+  }
+  $("nocountries").hidden = ctry.length > 0;
+  const pp = $("pingplayers");
+  pp.replaceChildren();
+  for (const r of w.by_player || []) {
+    const tr = document.createElement("tr");
+    tr.append(el("td", r.name, "name"), el("td", r.cc ? countryName(r.cc) : ""),
+              el("td", r.region || ""), pingCell(r.ping), el("td", links(r), "num"),
+              el("td", linkTime(r), "num"));
+    pp.append(tr);
+  }
   barList($("regions"), (w.regions || []).map((r) => [r.region + ", " + r.cc, r.players]),
           (v) => plural(v, "player"));
   geoNote($("geonote"), w);
@@ -785,3 +895,4 @@ setInterval(loadMetrics, 60000);
 </body>
 </html>
 """
+PAGE = PAGE.replace("__WORLD__", json.dumps(WORLD, separators=(",", ":")))

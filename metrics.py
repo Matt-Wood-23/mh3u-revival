@@ -775,7 +775,8 @@ def build_report(recs, now, tz_minutes=0, days=30):
             games["JP" if s["jp"] else "US/EU"].add(s["pid"])
         if s.get("rtt"):
             rtts[s["pid"]].append(s["rtt"])
-    per_player_rtt = sorted(_median(v) for v in rtts.values())
+    ping = {p: _median(v) for p, v in rtts.items()}          # each player's usual round trip
+    per_player_rtt = sorted(ping.values())
     # Each player counts once, at the place of their latest session in the period.
     at, place_hours = {}, Counter()
     for s in win:
@@ -784,6 +785,36 @@ def build_report(recs, now, tz_minutes=0, days=30):
                 at[s["pid"]] = (s["t1"], s["cc"], s.get("region") or "")
             place_hours[s["cc"]] += (s["t1"] - max(s["t0"], w0)) / 3600
     countries = Counter(cc for _, cc, _ in at.values())
+    # Room links (join -> linked up with each other player) per player and per country: a
+    # link counts for both of its players, and once for a country with both of them in it.
+    p_links, p_ok, p_secs = Counter(), Counter(), defaultdict(list)
+    c_links, c_ok, c_secs = Counter(), Counter(), defaultdict(list)
+    for l in links:
+        for p in {l["a"], l["b"]}:
+            p_links[p] += 1
+            p_ok[p] += bool(l["ok"])
+            if l["ok"] and l.get("secs") is not None:
+                p_secs[p].append(l["secs"])
+        for cc in {at[p][1] for p in (l["a"], l["b"]) if p in at}:
+            c_links[cc] += 1
+            c_ok[cc] += bool(l["ok"])
+            if l["ok"] and l.get("secs") is not None:
+                c_secs[cc].append(l["secs"])
+    c_ping = defaultdict(list)
+    for p, (_, cc, _) in at.items():
+        if ping.get(p):
+            c_ping[cc].append(ping[p])
+
+    def rnd(v, n=0):
+        return None if v is None else (round(v) if n == 0 else round(v, n))
+
+    by_player = [{**who(p), "cc": at[p][1] if p in at else None,
+                  "region": at[p][2] if p in at else "", "ping": rnd(ping.get(p)),
+                  "link_s": rnd(_median(p_secs[p]), 1), "links": p_links[p],
+                  "links_ok": p_ok[p]}
+                 for p in {s["pid"] for s in win}]
+    by_player.sort(key=lambda r: (r["cc"] is None, r["cc"] or "", r["ping"] is None,
+                                  r["ping"] or 0, r["name"].lower()))
     regions = Counter((cc, rg) for _, cc, rg in at.values() if rg)
     buckets = [("Under 50 ms", 0, 50), ("50-100 ms", 50, 100), ("100-150 ms", 100, 150),
                ("150-250 ms", 150, 250), ("250 ms or more", 250, 10 ** 9)]
@@ -791,8 +822,12 @@ def build_report(recs, now, tz_minutes=0, days=30):
         "halls": [{"hall": h, "players": len(v), "hours": round(hall_hours[h], 1)}
                   for h, v in sorted(halls.items(), key=lambda x: -len(x[1]))],
         "games": {k: len(v) for k, v in games.items()},
-        "countries": [{"cc": cc, "players": n, "hours": round(place_hours[cc], 1)}
+        "countries": [{"cc": cc, "players": n, "hours": round(place_hours[cc], 1),
+                       "ping": rnd(_median(c_ping[cc])), "pinged": len(c_ping[cc]),
+                       "link_s": rnd(_median(c_secs[cc]), 1), "links": c_links[cc],
+                       "links_ok": c_ok[cc]}
                       for cc, n in sorted(countries.items(), key=lambda x: (-x[1], x[0]))],
+        "by_player": by_player,
         "regions": [{"cc": cc, "region": rg, "players": n}
                     for (cc, rg), n in sorted(regions.items(),
                                               key=lambda x: (-x[1], x[0]))][:12],

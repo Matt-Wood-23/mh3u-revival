@@ -259,9 +259,12 @@ Below those, the dashboard has a **Metrics** section, for the last 7 days, 30 da
 time, in your own time zone: players today / this week / this month / ever, new players and
 how many came back, the busiest hours by weekday, players per day, a playtime leaderboard
 (time in rooms and time online), connection health (joins where the player was still in the
-room a minute later, player-to-player links that came up, who fails to join most), players
-per country and state / province, halls, game versions and distance to the server, rooms and how full they get, relay traffic and
-chat per day, hunter ranks, and server restarts and crashes. `/metrics?days=7&tz=300` on
+room a minute later, player-to-player links that came up, who fails to join most), a world
+map of players per country with their ping, a table per country and per player (ping, room
+links that came up and how long they took), players per state / province, halls, game
+versions and distance to the server, rooms and how full they get, relay traffic and chat per
+day, hunter ranks, and server restarts and crashes. Ping is the round trip the game itself
+measures to the server when it goes online. `/metrics?days=7&tz=300` on
 the admin port returns the same numbers as JSON.
 
 The server records them itself on a public server (status page or Discord on), one JSON

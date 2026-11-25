@@ -129,6 +129,75 @@ sth r11, 0x1DE(r3)
 _eqfBoardGo:
 b 0x02059CD4
 
+; Event quests for the JP game. JP never reads the save's quest packs: 0x02165630 loads
+; every quest once at boot, the list quest\quest (from quest00.arc), then quest\q_%05d for
+; each number, into the table at this+0x48 (the number loaded ends in r27, then goes to
+; 0x10314A40 for the rest of the game). After that loop, also load the list quest\revival
+; and the quests it names. They are in no archive, so the resource manager reads them as
+; loose files from this pack: nativeCafe/quest/revival.list and q_NNNNN.quest, which the
+; launcher writes. The table is allocated 150 entries larger for them.
+_eqfRevName:
+.byte 0x71,0x75,0x65,0x73,0x74,0x5C,0x72,0x65,0x76,0x69,0x76,0x61,0x6C,0x00
+.align 4
+
+_eqfRevival:
+lwz r3, 0(r30)            ; resource manager (r30 = 0x102CE7D4 since the loop)
+lwz r12, 0(r3)
+lwz r0, 0x64(r12)         ; getResource(dti, path, 1)
+mtctr r0
+lis r4, 0x1031
+addi r4, r4, 0x1128       ; rQuestList
+lis r5, _eqfRevName@ha
+addi r5, r5, _eqfRevName@l
+li r6, 1
+bctrl
+cmpwi r3, 0
+beq _eqfRevEnd
+lwz r28, 0x64(r3)         ; number of entries
+lwz r26, 0x70(r3)         ; entry pointers
+cmplwi r28, 150
+ble _eqfRevCount
+li r28, 150
+_eqfRevCount:
+li r29, 0
+_eqfRevLoop:
+cmplw r29, r28
+bge _eqfRevEnd
+slwi r12, r29, 2
+lwzx r5, r12, r26
+lwz r5, 4(r5)             ; quest_no
+lis r4, 0x1002
+addi r4, r4, 0x17C4       ; "quest\q_%05d"
+addi r3, r1, 8
+crxor 4*cr1+eq, 4*cr1+eq, 4*cr1+eq
+bl 0x03124F74             ; sprintf
+lwz r3, 0(r30)
+lwz r12, 0(r3)
+lwz r0, 0x64(r12)
+mtctr r0
+lis r4, 0x1031
+addi r4, r4, 0x10C8       ; rQuestData
+addi r5, r1, 8
+li r6, 1
+bctrl
+cmpwi r3, 0
+beq _eqfRevNext
+lwz r7, 0x48(r31)
+slwi r8, r27, 2
+stwx r3, r8, r7
+addi r27, r27, 1
+_eqfRevNext:
+addi r29, r29, 1
+b _eqfRevLoop
+_eqfRevEnd:
+lwz r7, 0x48(r31)
+slwi r8, r27, 2
+li r0, 0
+stwx r0, r8, r7           ; keep the table null-terminated
+li r28, 0                 ; the code after the hook uses r28 as zero
+lwz r11, 0x4C(r31)        ; the replaced instruction
+b 0x021657A0
+
 0x02076BC8 = bl _eqfName
 0x02076C54 = bl _eqfMore
 0x02076CF0 = bl _eqfMore
@@ -136,6 +205,8 @@ b 0x02059CD4
 0x02076E28 = bl _eqfMore
 0x02076EAC = bl _eqfMore
 0x0224EB84 = bl _eqfBoard
+0x021656C4 = addi r4, r5, 0x25C   ; quest table: count + 1 + 150 entries
+0x0216579C = b _eqfRevival
 
 
 [MH3U_EventQuestFix_US_v32]

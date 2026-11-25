@@ -351,6 +351,20 @@ STRINGS = {
         "es": "[Events] Omitido: {err}.",
         "ja": "[Events] スキップ：{err}。",
     },
+    "[Events] Event quests for the Japanese game: {n} ready.": {
+        "fr": "[Events] Quêtes d'événement pour le jeu japonais : {n} prêtes.",
+        "de": "[Events] Event-Quests für das japanische Spiel: {n} bereit.",
+        "it": "[Events] Missioni evento per il gioco giapponese: {n} pronte.",
+        "es": "[Events] Misiones de evento para el juego japonés: {n} listas.",
+        "ja": "[Events] 日本版ゲーム用のイベントクエスト：{n} 件を準備しました。",
+    },
+    "[Events] Couldn't write the event quests for the Japanese game ({err}).": {
+        "fr": "[Events] Impossible d'écrire les quêtes d'événement pour le jeu japonais ({err}).",
+        "de": "[Events] Die Event-Quests für das japanische Spiel konnten nicht geschrieben werden ({err}).",
+        "it": "[Events] Impossibile scrivere le missioni evento per il gioco giapponese ({err}).",
+        "es": "[Events] No se pudieron escribir las misiones de evento para el juego japonés ({err}).",
+        "ja": "[Events] 日本版ゲーム用のイベントクエストを書き込めませんでした（{err}）。",
+    },
     "{name}: checksum doesn't match the list": {
         "fr": "{name} : la somme de contrôle ne correspond pas à la liste",
         "de": "{name}: Prüfsumme stimmt nicht mit der Liste überein",

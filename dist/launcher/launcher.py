@@ -29,6 +29,7 @@ import hashlib
 import html
 import secrets
 import shutil
+import struct
 import time
 import zipfile
 import tempfile
@@ -527,7 +528,7 @@ CHALLENGE_NOS = tuple(range(61000, 61010))      # the only numbers that list lis
 def target_packs(no):
     """The packs a quest numbered `no` has to be in for the game to list it."""
     return (CHALLENGE_PACK,) if no in CHALLENGE_NOS else EVENT_PACKS
-EVENT_TITLES = ("10118300", "10117200")          # US, EU (the JP game lists all its own)
+EVENT_TITLES = ("10118300", "10117200")          # US, EU (the JP game: install_jp_event_quests)
 PACK_HEADER, PACK_SLOT, PACK_DATA, PACK_NAME, PACK_SLOTS = 0x28, 0x2010, 0x2000, 16, 20
 PACK_NAME_HASH = 0x14                           # header offset of the file-name hash
 
@@ -897,6 +898,129 @@ def game_event_quests(qdir):
 
 
 # ---------------------------------------------------------------------------
+# Event quests for the Japanese game
+#
+# The JP game never reads the save's quest packs: it loads every quest once at boot, from
+# the list in its own quest00.arc. The event quest fix pack's JP group makes it also load
+# a second list, quest\revival, which the game reads as loose files from the pack's
+# content folder: nativeCafe/quest/revival.list, then q_NNNNN.quest for each number. The
+# quests there are ours, in the JP layout (one string per text field instead of five, so
+# English). The US/EU games never ask for these files.
+# ---------------------------------------------------------------------------
+EVENT_FIX_PACK = "MH3U_EventQuestFix"
+JP_EVENT_REL = os.path.join(PACKS_REL, EVENT_FIX_PACK, "content", "nativeCafe", "quest")
+JP_EVENT_LIST = "revival.list"
+JP_BUILTIN_COPIES = (20151,)    # Western copies of the JP game's own quests (20101 Sgt. Frog)
+
+
+def jp_quest_record(rec):
+    """A US/EU quest record (five strings per text field) in the JP layout: the first
+    (English) string of each field, everything else as it is. ValueError if the record
+    can't be read."""
+    if rec[:4] != b"QTDS" or int.from_bytes(rec[4:8], "little") != 5:
+        raise ValueError("not a quest record")
+    out, pos = bytearray(rec[:8]), 8
+
+    def text():
+        nonlocal pos
+        first = None
+        for _ in range(5):
+            n = int.from_bytes(rec[pos:pos + 4], "little")
+            if pos + 4 + n > len(rec):
+                raise ValueError("the record ends inside a text")
+            if first is None:
+                first = rec[pos + 4:pos + 4 + n]
+            pos += 4 + n
+        out.extend(len(first).to_bytes(4, "little") + first)
+
+    def raw(k):
+        nonlocal pos
+        if pos + k > len(rec):
+            raise ValueError("the record is cut short")
+        out.extend(rec[pos:pos + k])
+        pos += k
+
+    # name, number, objective, u16, sub objective, u16, failure, 6 bytes, client, description
+    text(); raw(2); text(); raw(2); text(); raw(2); text(); raw(6); text(); text()
+    out.extend(rec[pos:])
+    return bytes(out)
+
+
+def quest_list_xfs(nos):
+    """An rQuestList resource listing the quest numbers `nos`: MT Framework XFS, big-endian.
+    Root rQuestList {mQuality = 2, No = {mAutoDelete = 1, mpArray = [{quest_no}, ...]}}."""
+    classes = ((0x7284DAF5, ((b"mQuality", 6, 0x91, 8), (b"No", 1, 0, 8))),
+               (0x71134D41, ((b"mAutoDelete", 3, 0, 2), (b"mpArray", 2, 0xA0, 8))),
+               (0x6F7DB50A, ((b"quest_no", 6, 0, 8),)))
+    # class table (offsets relative to 0x18), then the classes, then their field names
+    defs_at = 4 * len(classes)
+    names_at = defs_at + sum(8 + 0x28 * len(f) for _, f in classes)
+    names, name_off = b"", {}
+    for _, fields in classes:
+        for f in fields:
+            name_off[f[0]] = names_at + len(names)
+            names += f[0] + b"\0"
+    offs, defs = [], b""
+    for h, fields in classes:
+        offs.append(defs_at + len(defs))
+        defs += struct.pack(">IHH", h, len(fields) << 1, 0)
+        for name, typ, attr, size in fields:
+            defs += struct.pack(">IBBH", name_off[name], typ, attr, size) + bytes(0x20)
+    table = b"".join(struct.pack(">I", o) for o in offs) + defs + names
+    table += bytes(-len(table) % 4)
+    head = struct.pack(">4sHHIIII", b"\0SFX", 0x0F, 1, 2 + len(nos), 0, len(classes), len(table))
+    # objects: u16 0x8000|class, u16 id, u32 size (from itself to the object's end), then per
+    # field a u32 count and the values
+    data = (struct.pack(">HHI", 0x8000, 0, 0) + struct.pack(">III", 1, 2, 1)
+            + struct.pack(">HHI", 0x8001, 1, 0) + struct.pack(">IBI", 1, 1, len(nos))
+            + b"".join(struct.pack(">HHIII", 0x8002, 2 + i, 0x0C, 1, no)
+                       for i, no in enumerate(nos)))
+    out = bytearray(head + table + data)
+    root = len(head) + len(table)
+    for size_at in (root + 4, root + 0x18):          # the root object and the "No" object
+        struct.pack_into(">I", out, size_at, len(out) - size_at)
+    return bytes(out)
+
+
+def install_jp_event_quests(root, official, log=print):
+    """Write the official event quests for the Japanese game into the event quest fix pack
+    (see above), except copies of quests it already has; files for quests no longer listed
+    are removed. Returns how many are in place, or None if the pack isn't in this bundle."""
+    if not (Path(root) / PACKS_REL / EVENT_FIX_PACK / "rules.txt").is_file():
+        return None
+    qdir = Path(root) / JP_EVENT_REL
+    files = {}
+    for no in sorted(official):
+        if no in JP_BUILTIN_COPIES:
+            continue
+        name = f"q_{no:05d}.quest"
+        try:
+            files[name] = jp_quest_record(official[no])
+        except ValueError as e:
+            log(T("[Events] Skipped {err}.", err=f"{name}: {e}"))
+    nos = sorted(int(n[2:7]) for n in files)
+    files[JP_EVENT_LIST] = quest_list_xfs(nos)
+    qdir.mkdir(parents=True, exist_ok=True)
+    changed = False
+    for name, data in files.items():
+        path = qdir / name
+        try:
+            same = path.read_bytes() == data
+        except OSError:
+            same = False
+        if not same:
+            path.write_bytes(data)
+            changed = True
+    for path in qdir.glob("q_*.quest"):
+        if re.fullmatch(r"q_\d{5}\.quest", path.name) and path.name not in files:
+            path.unlink()
+            changed = True
+    if changed:
+        log(T("[Events] Event quests for the Japanese game: {n} ready.", n=len(nos)))
+    return len(nos)
+
+
+# ---------------------------------------------------------------------------
 # Graphic packs the launcher keeps switched on
 #
 # The bundle ships these in portable/graphicPacks. Before starting Cemu the launcher makes
@@ -1003,7 +1127,7 @@ def ensure_packs_enabled(root, log=print):
         os.replace(tmp, path)
 
 
-EVENT_FIX_ASM = os.path.join(PACKS_REL, "MH3U_EventQuestFix", "patch_eventquest.asm")
+EVENT_FIX_ASM = os.path.join(PACKS_REL, EVENT_FIX_PACK, "patch_eventquest.asm")
 
 
 def localize_event_fix(root, qdir, log=print):
@@ -1039,16 +1163,26 @@ def prepare_packs(root, log=print):
 
 def install_event_quests(root, log=print, fetch=True):
     """Put the official event quests (downloaded) and Capcom's event quests (from the
-    player's own US/EU game) into every US/EU save in this bundle. Never runs while Cemu
-    is open (the game would overwrite the packs)."""
+    player's own US/EU game) into every US/EU save in this bundle, and the official ones
+    into the event quest fix pack for the Japanese game. Never runs while Cemu is open
+    (the game would overwrite the packs)."""
     root = Path(root)
     if is_running(CEMU_EXE):
         log(T("[Events] Cemu is open; close it to update the event quests."))
         return
-    saves = event_save_dirs(root)
-    if not saves:
-        return              # no save yet: the game creates the packs on its first save
+    saves = event_save_dirs(root)     # none yet: the game creates the packs on its first save
+    jp = (root / PACKS_REL / EVENT_FIX_PACK / "rules.txt").is_file()
+    if not saves and not jp:
+        return
     official = load_event_quests(root, fetch=fetch, log=log)
+    if jp and official is not None:
+        try:
+            install_jp_event_quests(root, official, log)
+        except OSError as e:
+            log(T("[Events] Couldn't write the event quests for the Japanese game ({err}).",
+                  err=e))
+    if not saves:
+        return
     game = game_event_quests(find_west_game(root))
     if not game:
         log(T("[Events] Couldn't find your US/EU game's files, so Capcom's event quests "
@@ -1879,6 +2013,71 @@ def _selftest():
         check(load_event_quests(tmp, fetch=False, log=lambda s: None) == {20350: good},
               "offline start uses the cached event quests")
         check(is_protected_path(EVENTS_STATE_REL), "event slot ownership is protected")
+
+        print("== Event quests for the Japanese game ==")
+        def s1(text):
+            return len(text).to_bytes(4, "little") + text
+
+        def full_rec(no):
+            def s5(text):
+                return b"".join(s1(text + k) for k in (b"", b"-fr", b"-de", b"-it", b"-es"))
+            return (b"QTDS" + (5).to_bytes(4, "little") + s5(b"Event") + no.to_bytes(2, "little")
+                    + s5(b"Hunt") + b"\x01\x00" + s5(b"") + b"\x02\x00" + s5(b"Fail") + b"\x03" * 6
+                    + s5(b"Client") + s5(b"About") + b"TAIL" * 10)
+        want = (b"QTDS" + (5).to_bytes(4, "little") + s1(b"Event") + (20150).to_bytes(2, "little")
+                + s1(b"Hunt") + b"\x01\x00" + s1(b"") + b"\x02\x00" + s1(b"Fail") + b"\x03" * 6
+                + s1(b"Client") + s1(b"About") + b"TAIL" * 10)
+        check(jp_quest_record(full_rec(20150)) == want,
+              "a US/EU quest in the JP layout keeps the English text and everything else")
+        try:
+            jp_quest_record(full_rec(20150)[:60])
+            cut = False
+        except ValueError:
+            cut = True
+        check(cut, "a cut-short quest record is refused")
+        check(hashlib.sha256(quest_list_xfs([20150, 20250, 20350])).hexdigest()
+              == "f4681c641a48114db8cd77574a233061865150f9627868e11c519c0e462fc402",
+              "the quest list is byte-identical to the one tested in the JP game")
+        jroot = tmp / "jp_bundle"
+        qd = jroot / JP_EVENT_REL
+        check(install_jp_event_quests(jroot, {20150: full_rec(20150)}, log=lambda s: None) is None
+              and not qd.exists(), "no event quest fix pack -> no JP files")
+        (jroot / PACKS_REL / EVENT_FIX_PACK).mkdir(parents=True)
+        (jroot / PACKS_REL / EVENT_FIX_PACK / "rules.txt").write_text("x", encoding="utf-8")
+        logs = []
+        two = {20150: full_rec(20150), 20250: full_rec(20250)}
+        n = install_jp_event_quests(jroot, two, log=logs.append)
+        check(n == 2 and (qd / "q_20150.quest").read_bytes() == want
+              and (qd / JP_EVENT_LIST).read_bytes() == quest_list_xfs([20150, 20250])
+              and len(logs) == 1, "JP event quests + list written into the pack")
+        logs.clear()
+        install_jp_event_quests(jroot, two, log=logs.append)
+        check(not logs, "a second run changes nothing")
+        (qd / "notes.txt").write_text("keep", encoding="utf-8")
+        install_jp_event_quests(jroot, {20250: full_rec(20250), 20152: b"QTDS junk",
+                                        20151: full_rec(20151)}, log=logs.append)
+        check(not (qd / "q_20150.quest").exists() and not (qd / "q_20152.quest").exists()
+              and (qd / "notes.txt").exists()
+              and (qd / JP_EVENT_LIST).read_bytes() == quest_list_xfs([20250]),
+              "a quest off the list is removed, an unreadable one skipped, other files kept")
+        check(not (qd / "q_20151.quest").exists(),
+              "a Western copy of a quest the JP game has (20151 = its 20101) isn't added")
+        jcache = jroot / EVENTS_CACHE_REL
+        jcache.mkdir(parents=True)
+        jrec = full_rec(20350)
+        (jcache / "events.json").write_text(json.dumps({"quests": [
+            {"file": "q_20350.quest", "sha256": hashlib.sha256(jrec).hexdigest()}]}),
+            encoding="utf-8")
+        (jcache / "q_20350.quest").write_bytes(jrec)
+        running = globals()["is_running"]
+        globals()["is_running"] = lambda exe: False
+        try:
+            install_event_quests(jroot, log=lambda s: None, fetch=False)
+        finally:
+            globals()["is_running"] = running
+        check((qd / JP_EVENT_LIST).read_bytes() == quest_list_xfs([20350])
+              and (qd / "q_20350.quest").is_file(),
+              "a bundle with no US/EU save still gets the JP event quests")
 
         print("== Capcom's event quests from the player's game ==")
         def dummy_rec(no):

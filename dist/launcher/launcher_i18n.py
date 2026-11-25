@@ -833,4 +833,70 @@ STRINGS = {
         "es": "  omitido (en uso): {m}",
         "ja": "  スキップ（使用中）：{m}",
     },
+    "Copy my logs": {
+        "fr": "Copier mes journaux",
+        "de": "Meine Logs kopieren",
+        "it": "Copia i miei log",
+        "es": "Copiar mis registros",
+        "ja": "ログをコピー",
+    },
+    "[Logs] Copied. Paste them in Discord when you ask for help (IP addresses and your Windows "
+    "user name are hidden). Also saved as {path}.": {
+        "fr": "[Journaux] Copiés. Collez-les sur Discord quand vous demandez de l'aide (les "
+              "adresses IP et votre nom d'utilisateur Windows sont masqués). Aussi enregistrés "
+              "dans {path}.",
+        "de": "[Logs] Kopiert. Füge sie in Discord ein, wenn du um Hilfe bittest (IP-Adressen und "
+              "dein Windows-Benutzername sind ausgeblendet). Auch gespeichert als {path}.",
+        "it": "[Log] Copiati. Incollali su Discord quando chiedi aiuto (gli indirizzi IP e il tuo "
+              "nome utente di Windows sono nascosti). Salvati anche in {path}.",
+        "es": "[Registros] Copiados. Pégalos en Discord cuando pidas ayuda (las direcciones IP y tu "
+              "nombre de usuario de Windows están ocultos). También se guardaron en {path}.",
+        "ja": "[ログ] コピーしました。助けを求めるときにDiscordに貼り付けてください（IPアドレスと"
+              "Windowsのユーザー名は隠してあります）。{path} にも保存しました。",
+    },
+    "[Logs] Copied. Paste them in Discord when you ask for help (IP addresses and your Windows "
+    "user name are hidden).": {
+        "fr": "[Journaux] Copiés. Collez-les sur Discord quand vous demandez de l'aide (les "
+              "adresses IP et votre nom d'utilisateur Windows sont masqués).",
+        "de": "[Logs] Kopiert. Füge sie in Discord ein, wenn du um Hilfe bittest (IP-Adressen und "
+              "dein Windows-Benutzername sind ausgeblendet).",
+        "it": "[Log] Copiati. Incollali su Discord quando chiedi aiuto (gli indirizzi IP e il tuo "
+              "nome utente di Windows sono nascosti).",
+        "es": "[Registros] Copiados. Pégalos en Discord cuando pidas ayuda (las direcciones IP y tu "
+              "nombre de usuario de Windows están ocultos).",
+        "ja": "[ログ] コピーしました。助けを求めるときにDiscordに貼り付けてください（IPアドレスと"
+              "Windowsのユーザー名は隠してあります）。",
+    },
+    "[Logs] Couldn't use the clipboard. Saved them as {path}: attach that file in Discord.": {
+        "fr": "[Journaux] Impossible d'utiliser le presse-papiers. Enregistrés dans {path} : "
+              "joignez ce fichier sur Discord.",
+        "de": "[Logs] Die Zwischenablage ging nicht. Gespeichert als {path}: hänge diese Datei in "
+              "Discord an.",
+        "it": "[Log] Impossibile usare gli appunti. Salvati in {path}: allega quel file su Discord.",
+        "es": "[Registros] No se pudo usar el portapapeles. Se guardaron en {path}: adjunta ese "
+              "archivo en Discord.",
+        "ja": "[ログ] クリップボードを使えませんでした。{path} に保存したので、そのファイルを"
+              "Discordに添付してください。",
+    },
+    "[Logs] Couldn't copy or save them.": {
+        "fr": "[Journaux] Impossible de les copier ou de les enregistrer.",
+        "de": "[Logs] Sie konnten weder kopiert noch gespeichert werden.",
+        "it": "[Log] Impossibile copiarli o salvarli.",
+        "es": "[Registros] No se pudieron copiar ni guardar.",
+        "ja": "[ログ] コピーも保存もできませんでした。",
+    },
+    "[Logs] Couldn't collect them ({err}).": {
+        "fr": "[Journaux] Impossible de les rassembler ({err}).",
+        "de": "[Logs] Sie konnten nicht gesammelt werden ({err}).",
+        "it": "[Log] Impossibile raccoglierli ({err}).",
+        "es": "[Registros] No se pudieron reunir ({err}).",
+        "ja": "[ログ] 集められませんでした（{err}）。",
+    },
+    "  kept your Cemu settings ({m})": {
+        "fr": "  vos réglages Cemu sont conservés ({m})",
+        "de": "  deine Cemu-Einstellungen bleiben erhalten ({m})",
+        "it": "  le tue impostazioni di Cemu sono state mantenute ({m})",
+        "es": "  se conservan tus ajustes de Cemu ({m})",
+        "ja": "  Cemuの設定はそのまま残しました（{m}）",
+    },
 }

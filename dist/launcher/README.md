@@ -41,6 +41,14 @@ showing the bundle version and update state.
 - launches `Cemu_release.exe` from the launcher's own directory
   (skippable with `MH3U_NOLAUNCH=1`, same as the .bat).
 
+**Copy my logs** (Join tab) puts a support report on the clipboard for Discord and saves it
+as `portable\mh3u_support.txt` (`support_report`): launcher version, Windows, server choice,
+account state, the event quest packs (quests, gaps, renamed copies), the graphics API, the
+MH3U graphic packs switched on with their presets, custom textures, this session's Join and
+Host output, and the first 40 and last 300 lines of Cemu's `portable\log.txt`. IP addresses
+keep only their first number (26 = Radmin, 100 = Tailscale, 192 = LAN) and the Windows user
+name and profile folder are hidden (`scrub`).
+
 **Host** — ports `HOST_MH3U.bat`:
 - detects Radmin (`26.x`, pure-Python socket scan), Tailscale (`100.x`,
   `tailscale ip -4` with the `%ProgramFiles%\Tailscale\tailscale.exe` fallback),
@@ -124,6 +132,14 @@ sees, and for an official server also reads its status page.
   `portable\mlc01\usr\save\**` (account.dat + game saves), and
   `portable\mlc01\usr\title\**` (the dump) are excluded from the overwrite set.
   `version.txt` is rewritten **last**, only after a successful extract.
+- **Cemu's settings are kept:** `portable\settings.xml` is merged, not replaced
+  (`merge_cemu_settings`). The player's file stays as it is (graphics, audio, game paths,
+  custom textures, packs they switched on or off); the update adds only the graphic packs its
+  own file lists that the player's has never listed (a pack new in that update, with the
+  bundle's preset) and the network service for an account that has none. A missing or broken
+  `settings.xml` is replaced by the update's. Launchers before this change replaced the file,
+  and an update is run by the launcher already installed, so the first update from one of
+  those still resets it.
 - It refuses to update while `Cemu_release.exe` / `server.exe` are running
   (checked via `tasklist`).
 - **Self-update:** a running exe can't overwrite itself, so the new launcher is

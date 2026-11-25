@@ -262,8 +262,11 @@ helps most:
 
 - What you were doing, and whether you were the **host or a joiner**.
 - Game **region** (US / EU / JP) and how you connect (Tailscale / Radmin / LAN / public IP).
-- **Joiner:** the bundle's `portable/log.txt` (overwritten each launch — grab it right
-  after the failure).
+- **Joiner:** right after the failure, press **Copy my logs** on the launcher's Join tab and
+  paste the result in your report or in Discord. It collects your setup (launcher version,
+  server choice, account, quest packs, MH3U graphic packs) and the start and end of Cemu's
+  `portable/log.txt` (overwritten each launch), with IP addresses cut to their first number
+  and your Windows user name hidden. It's also saved as `portable/mh3u_support.txt`.
 - **Host:** the server console output around the failure — especially any lines
   containing `probe`, `report_nat_traversal_result`, `Connection was closed`, or `LOGOUT`.
 

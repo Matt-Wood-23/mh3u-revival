@@ -909,23 +909,76 @@ ALWAYS_ON_PACKS = ("MH3U_EventQuestFix",)
 
 def enable_pack_entry(text, pack):
     """Cemu settings.xml text with graphicPacks/<pack>/rules.txt switched on (the same text
-    if it already is), or None if there is no <GraphicPack> section to put it in."""
+    if it already is), or None if there is no place to put it."""
     name = f"graphicPacks/{pack}/rules.txt"
-    nl = "\r\n" if "\r\n" in text else "\n"
     m = re.search(r'<Entry\s+filename="%s"([^>]*?)(/?)>' % re.escape(name), text, re.I)
     if m:                                         # listed: drop a disabled="true"
         attrs = re.sub(r'\s+disabled="[^"]*"', "", m.group(1))
         return text[:m.start()] + f'<Entry filename="{name}"{attrs}{m.group(2)}>' + text[m.end():]
-    m = re.search(r"([ \t]*)<GraphicPack\s*/>", text)
+    return _add_child(text, "GraphicPack", f'<Entry filename="{name}"/>')
+
+
+def _add_child(text, section, child):
+    """Cemu settings.xml text with the element `child` added at the end of <section> (made
+    if there is none), or None if the text has no place for it."""
+    nl = "\r\n" if "\r\n" in text else "\n"
+    child = re.sub(r"\r?\n", nl, child)
+    m = re.search(r"([ \t]*)<%s\s*/>" % section, text)
     if m:                                         # an empty section
         ind = m.group(1)
-        return (text[:m.start()] + f'{ind}<GraphicPack>{nl}{ind}    <Entry filename="{name}"/>{nl}'
-                f'{ind}</GraphicPack>' + text[m.end():])
-    m = re.search(r"\r?\n([ \t]*)</GraphicPack>", text)
+        return (text[:m.start()] + f"{ind}<{section}>{nl}{ind}    {child}{nl}"
+                f"{ind}</{section}>" + text[m.end():])
+    m = re.search(r"\r?\n([ \t]*)</%s>" % section, text)
     if m:
         ind = m.group(1)
-        return text[:m.start()] + f'{nl}{ind}    <Entry filename="{name}"/>' + text[m.start():]
+        return text[:m.start()] + f"{nl}{ind}    {child}" + text[m.start():]
+    m = re.search(r"\r?\n</content>", text)
+    if m:                                         # no section at all
+        return (text[:m.start()] + f"{nl}    <{section}>{nl}        {child}{nl}    </{section}>"
+                + text[m.start():])
     return None
+
+
+def _services(text):
+    """{PersistentId: <SelectedService .../> element} in Cemu settings.xml text: each
+    account's network service (Service="1" = Nintendo, what the online gate needs)."""
+    m = re.search(r"<AccountService>(.*?)</AccountService>", text, re.S)
+    if not m:
+        return {}
+    return {e.group(1): e.group(0)
+            for e in re.finditer(r'<SelectedService\s+PersistentId="(\d+)"[^>]*/>', m.group(1))}
+
+
+def pack_entries(text):
+    """{graphic pack file name, lower case with /: its whole <Entry> element} in the
+    <GraphicPack> section of Cemu settings.xml text."""
+    m = re.search(r"<GraphicPack>(.*?)</GraphicPack>", text, re.S)
+    if not m:
+        return {}
+    return {html.unescape(e.group(1)).replace("\\", "/").lower(): e.group(0)
+            for e in re.finditer(r'<Entry\s+filename="([^"]*)"[^>]*?(?:/>|>.*?</Entry>)',
+                                 m.group(1), re.S)}
+
+
+def merge_cemu_settings(old, new):
+    """What an update does with Cemu's settings.xml: the player's file `old` stays as it is
+    (graphics, audio, game paths, custom textures, packs they switched on or off), plus each
+    graphic pack the update's file `new` lists that `old` has never listed (a pack new in this
+    update, switched on with the bundle's preset) and the update's network service for an
+    account `old` has none for. None if `old` isn't a usable settings file (then the update's
+    file is used as is)."""
+    if not re.search(r"<content>.*</content>", old, re.S):
+        return None
+    have = pack_entries(old)
+    out = old
+    for key, entry in pack_entries(new).items():
+        if key not in have:
+            out = _add_child(out, "GraphicPack", entry) or out
+    have = _services(old)
+    for pid, entry in _services(new).items():
+        if pid not in have:
+            out = _add_child(out, "AccountService", entry) or out
+    return out
 
 
 def ensure_packs_enabled(root, log=print):
@@ -1332,6 +1385,23 @@ def apply_update_zip(zip_path, root, log=print):
         members = zf.namelist()
         for m in plan_overwrite(members):
             target = root / _norm(m)
+            # Cemu's settings: keep the player's, add only the graphic packs new in this update
+            if _norm(m).lower() == _norm(CEMU_SETTINGS_REL).lower() and target.is_file():
+                try:
+                    old = target.read_bytes().decode("utf-8")
+                    merged = merge_cemu_settings(old, zf.read(m).decode("utf-8"))
+                except (OSError, UnicodeDecodeError):
+                    merged = None
+                if merged is not None:
+                    try:
+                        if merged != old:
+                            tmp = target.with_name(target.name + ".revival_tmp")
+                            tmp.write_bytes(merged.encode("utf-8"))
+                            os.replace(tmp, target)
+                        log(T("  kept your Cemu settings ({m})", m=m))
+                    except OSError:
+                        log(T("  skip (in use): {m}", m=m))
+                    continue
             # the running exe: stage as .new and let a helper .bat swap it post-exit
             if _norm(m).lower() == launcher_name.lower():
                 new_path = root / (launcher_name + ".new")
@@ -1376,6 +1446,123 @@ def write_self_replace_bat(root, launcher_name):
     with open(bat, "w", newline="") as f:
         f.write(content)
     return bat
+
+
+# ---------------------------------------------------------------------------
+# Copy my logs: one text to paste in Discord when asking for help. IP addresses keep only
+# their first number and the Windows user name is hidden.
+# ---------------------------------------------------------------------------
+CEMU_LOG_REL = os.path.join("portable", "log.txt")
+SUPPORT_REL = os.path.join("portable", "mh3u_support.txt")
+_IPV4 = re.compile(r"(?<![\d.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\d.])")
+
+
+def scrub(text, home=None, user=None):
+    """`text` with each IPv4 address cut to its first number (26.x.x.x is Radmin, 100.x.x.x
+    Tailscale, 192.x.x.x a LAN: enough to tell them apart) and the Windows user name hidden."""
+    def ip(m):
+        if max(int(g) for g in m.groups()) > 255 or m.group(0) in ("127.0.0.1", "0.0.0.0"):
+            return m.group(0)
+        return m.group(1) + ".x.x.x"
+    text = _IPV4.sub(ip, text)
+    home = os.path.expanduser("~") if home is None else home
+    if home and len(home) > 3:
+        for h in sorted({home, home.replace("\\", "/")}, key=len, reverse=True):
+            text = re.sub(re.escape(h), "%USERPROFILE%", text, flags=re.I)
+    user = os.environ.get("USERNAME", "") if user is None else user
+    if len(user) >= 3:
+        text = re.sub(r"(?<!\w)" + re.escape(user) + r"(?!\w)", "<user>", text, flags=re.I)
+    return text
+
+
+MH3U_TITLE_IDS = ("0005000010118300", "0005000010117200", "0005000010104d00")   # US, EU, JP
+
+
+def _cemu_summary(text, root=None):
+    """Graphics API, graphic packs on (with presets) and custom textures from settings.xml.
+    With `root`, only the packs whose rules.txt is for MH3U (or can't be read) are listed."""
+    api = re.search(r"<Graphic>.*?<api>(\d+)</api>", text, re.S)
+    api = {"0": "OpenGL", "1": "Vulkan", "2": "Metal"}.get(api.group(1), api.group(1)) if api else "?"
+    on = []
+    for entry in pack_entries(text).values():
+        if re.search(r'disabled="true"', entry.split(">", 1)[0], re.I):
+            continue
+        path = html.unescape(re.search(r'filename="([^"]*)"', entry).group(1)).replace("\\", "/")
+        if root is not None:
+            try:
+                rules = (Path(root) / "portable" / path).read_text(encoding="utf-8", errors="replace")
+                m = re.search(r"^\s*titleIds\s*=\s*(.*)$", rules, re.M | re.I)
+                if m and not any(t in m.group(1).lower() for t in MH3U_TITLE_IDS):
+                    continue                      # another game's pack
+            except OSError:
+                pass
+        name = path.split("/")[-2] if path.count("/") >= 2 else path
+        presets = [html.unescape(p) for p in re.findall(r"<preset>(.*?)</preset>", entry, re.S)]
+        on.append(name + (f" ({', '.join(presets)})" if presets else ""))
+    tex = "on" if re.search(r"<CustomTextures>.*?\|enabled\|1", text, re.S) else "off"
+    return [f"Graphics API: {api}", "Graphic packs on: " + (", ".join(on) or "none"),
+            f"Custom textures: {tex}"]
+
+
+def support_report(root, launcher_text="", host_text="", head=40, tail=300):
+    """The text Copy my logs puts on the clipboard: setup facts, this session's launcher and
+    Host tab output, and the start and end of Cemu's log. Already scrubbed."""
+    import platform
+    root = Path(root)
+    out = ["MH3U Online support info (IP addresses show only their first number; the Windows "
+           "user name is hidden)", "",
+           f"Launcher: {read_version(root)} | {platform.platform()} | language {_lang}"]
+    js = read_launcher_settings(root / LAUNCHER_SETTINGS_REL)
+    if js.get("join_mode") == "official":
+        where = f"official server ({js.get('server_id', '?')})"
+    else:
+        where = f"a friend's server ({read_host_ip(root / SRVFILE_REL) or 'no IP saved'})"
+    out.append(f"Join: {where} | event quests {'on' if js.get('events', True) is not False else 'off'}")
+    acct = account_needs_mint(root / ACTDIR_REL / "account.dat")
+    out.append("Account: " + {None: "online account OK", "new": "none yet",
+                              "repair": "blank offline account (Save + Play repairs it)"}[acct])
+    out.append("Game in Cemu's folder: " + ("yes" if (root / GAMEDIR_REL / "code").is_dir() else "no"))
+    try:
+        qdir = find_west_game(root)
+    except Exception:
+        qdir = None
+    out.append("US/EU quest files found: " + (str(qdir) if qdir else "no"))
+    for d in event_save_dirs(root):
+        packs = []
+        for name in SAVE_PACKS:
+            try:
+                data = (d / name).read_bytes()
+            except OSError:
+                packs.append(f"{name} missing")
+                continue
+            src = pack_copied_from(name, data)
+            used = sum(1 for i in range(PACK_SLOTS) if any(_slot(data, i)))
+            packs.append(f"{name} " + (f"renamed copy of {src}" if src else
+                                       f"{used} quest{'s' if used != 1 else ''}"
+                                       + (" with a gap" if _has_gap(data) else "")))
+        out.append(f"Save {d.parent.parent.name}/{d.name}: " + ", ".join(packs))
+    try:
+        out += _cemu_summary((root / CEMU_SETTINGS_REL).read_text(encoding="utf-8", errors="replace"),
+                             root)
+    except OSError:
+        out.append("Cemu settings: none yet")
+    if launcher_text.strip():
+        out += ["", "--- Launcher (this session) ---", launcher_text.rstrip()]
+    if host_text.strip():
+        lines = host_text.rstrip().splitlines()
+        out += ["", f"--- Host tab server log (last {min(len(lines), 150)} lines) ---"] + lines[-150:]
+    try:
+        lines = (root / CEMU_LOG_REL).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        lines = None
+    if lines is None:
+        out += ["", "--- Cemu log: none yet (Cemu hasn't run from this folder) ---"]
+    elif len(lines) <= head + tail:
+        out += ["", "--- Cemu log (portable\\log.txt) ---"] + lines
+    else:
+        out += ["", f"--- Cemu log (portable\\log.txt, first {head} and last {tail} of {len(lines)} "
+                    "lines) ---"] + lines[:head] + ["[...]"] + lines[-tail:]
+    return scrub("\n".join(out) + "\n")
 
 
 # ===========================================================================
@@ -1861,6 +2048,90 @@ def _selftest():
             localize_event_fix(tmp, qdir, log=lines.append)
             check((pdir / "patch_eventquest.asm").read_text(encoding="ascii") == asm and len(lines) == 2,
                   "event fix names: second run changes nothing")
+
+        print("== Update now keeps Cemu's settings ==")
+        import xml.etree.ElementTree as ET
+        fps = ('<Entry filename="graphicPacks/MH3U_FPS_Cap/rules.txt">\n            <Preset>\n'
+               '                <preset>60 FPS (normalized beta)</preset>\n            </Preset>\n'
+               '        </Entry>')
+        new = ('<?xml version="1.0" encoding="UTF-8"?>\n<content>\n    <GraphicPack>\n        '
+               + fix + "\n        " + fps + "\n    </GraphicPack>\n    <Graphic>\n        <api>1</api>\n"
+               "    </Graphic>\n    <AccountService>\n        <SelectedService PersistentId=\"2147483649\""
+               " Service=\"1\"/>\n    </AccountService>\n</content>\n")
+        mine = ('<?xml version="1.0" encoding="UTF-8"?>\r\n<content>\r\n    <GraphicPack>\r\n'
+                '        <Entry filename="graphicPacks/MH3U_LocLac/rules.txt"/>\r\n        '
+                + fix.replace("/>", ' disabled="true"/>') + "\r\n    </GraphicPack>\r\n    <Graphic>\r\n"
+                "        <api>0</api>\r\n    </Graphic>\r\n</content>\r\n")
+        out = merge_cemu_settings(mine, new)
+        check(out is not None and "<api>0</api>" in out and "MH3U_LocLac" in out
+              and out.count("MH3U_EventQuestFix") == 1 and 'disabled="true"' in out,
+              "settings: the player's graphics, packs and unticked packs are kept")
+        check(out is not None and "60 FPS (normalized beta)" in out and "\n" not in out.replace("\r\n", ""),
+              "settings: a pack new in the update is added with its preset, keeping CRLF")
+        try:
+            ET.fromstring(out.encode("utf-8"))
+            parsed = True
+        except (ET.ParseError, AttributeError):
+            parsed = False
+        check(parsed, "settings: the merged file is still well-formed XML")
+        check(merge_cemu_settings(out, new) == out, "settings: second update changes nothing")
+        check(out is not None and 'PersistentId="2147483649" Service="1"' in out,
+              "settings: no network service for the account -> the bundle's (Nintendo)")
+        other = mine.replace("</content>", '    <AccountService>\r\n        <SelectedService '
+                             'PersistentId="2147483649" Service="2"/>\r\n    </AccountService>\r\n</content>')
+        out2 = merge_cemu_settings(other, new)
+        check(out2 is not None and 'Service="2"' in out2 and 'Service="1"' not in out2,
+              "settings: a network service the player picked is kept")
+        off30 = other.replace('Service="2"', 'Service="1"').replace("    </GraphicPack>", '        <Entry filename="graphicPacks\\MH3U_FPS_Cap\\rules.txt"'
+                             ' disabled="true">\r\n            <Preset>\r\n                <preset>30 FPS'
+                             '</preset>\r\n            </Preset>\r\n        </Entry>\r\n    </GraphicPack>')
+        check(merge_cemu_settings(off30, new) == off30, "settings: a pack the player set up stays as they left it")
+        bare = '<?xml version="1.0"?>\n<content>\n    <GraphicPack/>\n</content>\n'
+        out = merge_cemu_settings(bare, new)
+        check(out is not None and fix in out and "60 FPS" in out, "settings: empty <GraphicPack/> gets both")
+        check(merge_cemu_settings("", new) is None and merge_cemu_settings("<content", new) is None,
+              "settings: an empty or broken file is replaced by the update's")
+        up = tmp / "update_test"
+        (up / "portable").mkdir(parents=True)
+        zpath = tmp / "update_test.zip"
+        with zipfile.ZipFile(zpath, "w") as z:
+            z.writestr("portable/settings.xml", new)
+            z.writestr("version.txt", "v9.9.9\n")
+        (up / CEMU_SETTINGS_REL).write_bytes(mine.encode("utf-8"))
+        lines = []
+        apply_update_zip(zpath, up, log=lines.append)
+        check((up / CEMU_SETTINGS_REL).read_bytes().decode("utf-8") == merge_cemu_settings(mine, new)
+              and (up / "version.txt").is_file() and len(lines) == 1,
+              "Update now: settings.xml merged, other files written")
+        (up / CEMU_SETTINGS_REL).unlink()
+        apply_update_zip(zpath, up, log=lines.append)
+        check((up / CEMU_SETTINGS_REL).read_text(encoding="utf-8") == new,
+              "Update now: no settings.xml yet -> the update's")
+
+        print("== Copy my logs ==")
+        s = scrub("to 26.10.20.30:1223 via 192.168.1.5, local 127.0.0.1, driver 31.0.101.5590, "
+                  r"C:\Users\Bob\Desktop\MH3U and c:/users/bob/x, Bob's game, Bobby", home=r"C:\Users\Bob",
+                  user="Bob")
+        check(s == r"to 26.x.x.x:1223 via 192.x.x.x, local 127.0.0.1, driver 31.0.101.5590, "
+                   r"%USERPROFILE%\Desktop\MH3U and %USERPROFILE%/x, <user>'s game, Bobby",
+              "scrub: addresses cut to their first number, user name and home folder hidden")
+        sr = tmp / "report_test"
+        (sr / "portable").mkdir(parents=True)
+        (sr / CEMU_SETTINGS_REL).write_text(new.replace("</content>", "<CustomTextures>\n<Entry>"
+                                            "0005000010118300|enabled|1</Entry>\n</CustomTextures>\n</content>"),
+                                            encoding="utf-8")
+        (sr / CEMU_LOG_REL).write_text("".join(f"line {i} 8.8.{i % 200}.4\n" for i in range(500)),
+                                       encoding="utf-8")
+        (sr / SRVFILE_REL).write_text("26.1.2.3\n", encoding="utf-8")
+        rep = support_report(sr, "[MH3U Online] launching\n", "", head=5, tail=10)
+        check("Graphic packs on: MH3U_EventQuestFix, MH3U_FPS_Cap (60 FPS (normalized beta))" in rep
+              and "Graphics API: Vulkan" in rep and "Custom textures: on" in rep,
+              "report: graphic packs, presets, API and textures from settings.xml")
+        check("a friend's server (26.x.x.x)" in rep and "8.8." not in rep and "26.1.2.3" not in rep,
+              "report: no full IP address anywhere")
+        check("first 5 and last 10 of 500 lines" in rep and "line 4 8.x.x.x" in rep
+              and "line 499 8.x.x.x" in rep and "line 5 " not in rep and "[MH3U Online] launching" in rep,
+              "report: start and end of Cemu's log, and this session's launcher lines")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -2047,6 +2318,8 @@ def _run_gui(smoke=False, carry=None):
     join_play.pack(side="left")
     join_test = ttk.Button(join_btns, text=T("Test connection"))
     join_test.pack(side="left", padx=6)
+    join_logs = ttk.Button(join_btns, text=T("Copy my logs"))
+    join_logs.pack(side="left")
     join_log = scrolledtext.ScrolledText(join, height=10, wrap="word", state="disabled")
     join_log.pack(fill="both", expand=True)
 
@@ -2121,6 +2394,49 @@ def _run_gui(smoke=False, carry=None):
         threading.Thread(target=worker, daemon=True).start()
 
     join_test.configure(command=do_test)
+
+    def do_logs():
+        join_logs.configure(state="disabled")
+        jtext = join_log.get("1.0", "end")
+        htext = busy["host_log"]() if "host_log" in busy else ""
+
+        def done(text, path):
+            try:
+                app.clipboard_clear()
+                app.clipboard_append(text)
+                app.update()                      # keep it on the clipboard
+                copied = True
+            except tk.TclError:
+                copied = False
+            if copied and path:
+                jlog(T("[Logs] Copied. Paste them in Discord when you ask for help (IP addresses "
+                       "and your Windows user name are hidden). Also saved as {path}.", path=path))
+            elif copied:
+                jlog(T("[Logs] Copied. Paste them in Discord when you ask for help (IP addresses "
+                       "and your Windows user name are hidden)."))
+            elif path:
+                jlog(T("[Logs] Couldn't use the clipboard. Saved them as {path}: attach that "
+                       "file in Discord.", path=path))
+            else:
+                jlog(T("[Logs] Couldn't copy or save them."))
+            join_logs.configure(state="normal")
+
+        def worker():
+            try:
+                text = support_report(ROOT_DIR, jtext, htext)
+            except Exception as e:
+                post(jlog, T("[Logs] Couldn't collect them ({err}).", err=e))
+                post(lambda: join_logs.configure(state="normal"))
+                return
+            path = Path(ROOT_DIR) / SUPPORT_REL
+            try:
+                path.write_text(text, encoding="utf-8")
+            except OSError:
+                path = None
+            post(done, text, path and str(Path("portable") / path.name))
+        threading.Thread(target=worker, daemon=True).start()
+
+    join_logs.configure(command=do_logs)
 
     def do_join():
         choice = choice_var.get()
@@ -2286,6 +2602,7 @@ def _run_gui(smoke=False, carry=None):
 
         proc_holder = {"proc": None, "reader": None}
         busy["server"] = lambda: proc_holder["proc"] is not None
+        busy["host_log"] = lambda: host_log.get("1.0", "end")
 
         def hlog(line):
             host_log.configure(state="normal")

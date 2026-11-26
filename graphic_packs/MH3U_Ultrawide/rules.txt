@@ -1,0 +1,109 @@
+[Definition]
+titleIds = 0005000010118300,0005000010117200,0005000010104D00
+name = "Ultrawide"
+path = "Monster Hunter 3 Ultimate/Graphics/Ultrawide"
+description = "Renders the game wider than 16:9 instead of stretching it. Pick your monitor's resolution. The HUD and menus stay 16:9 in the middle of the screen. Turn off the Resolution pack while this is on (both resize the same buffers), and set Cemu's scaling to Keep aspect ratio. US v32, EU v32, JP v96."
+version = 7
+
+[Default]
+$width = 3440
+$height = 1440
+$gameWidth = 1920
+$gameHeight = 1080
+
+[Preset]
+name = 2560x1080 (21:9)
+$width = 2560
+$height = 1080
+
+[Preset]
+name = 3440x1440 (21:9)
+$width = 3440
+$height = 1440
+
+[Preset]
+name = 3840x1600 (21:9)
+$width = 3840
+$height = 1600
+
+[Preset]
+name = 5120x2160 (21:9)
+$width = 5120
+$height = 2160
+
+[Preset]
+name = 3840x1080 (32:9)
+$width = 3840
+$height = 1080
+
+[Preset]
+name = 5120x1440 (32:9)
+$width = 5120
+$height = 1440
+
+# 3D buffers: width and height scale separately, so the picture gets wider.
+[TextureRedefine]
+width = 1920
+height = 1088
+formats = 0x01a,0x011
+tileModesExcluded = 0x001 # video playback
+overwriteWidth = ($width / $gameWidth) * 1920
+overwriteHeight = ($height / $gameHeight) * 1088
+
+[TextureRedefine]
+width = 1920
+height = 1080
+formats = 0x01a,0x011
+tileModesExcluded = 0x001 # video playback
+overwriteWidth = ($width / $gameWidth) * 1920
+overwriteHeight = ($height / $gameHeight) * 1080
+
+[TextureRedefine]
+width = 960
+height = 544
+formats = 0x01a
+overwriteWidth = ($width / $gameWidth) * 960
+overwriteHeight = ($height / $gameHeight) * 544
+
+[TextureRedefine]
+width = 960
+height = 540
+formats = 0x01a
+overwriteWidth = ($width / $gameWidth) * 960
+overwriteHeight = ($height / $gameHeight) * 540
+
+[TextureRedefine]
+width = 480
+height = 272
+formats = 0x01a
+overwriteWidth = ($width / $gameWidth) * 480
+overwriteHeight = ($height / $gameHeight) * 272
+
+[TextureRedefine]
+width = 480
+height = 270
+formats = 0x01a
+overwriteWidth = ($width / $gameWidth) * 480
+overwriteHeight = ($height / $gameHeight) * 270
+
+# GamePad screen and the square depth map keep their shape: scale by height only.
+[TextureRedefine]
+width = 864
+height = 480
+formats = 0x01a,0x011,0x41a
+overwriteWidth = ($height / $gameHeight) * 864
+overwriteHeight = ($height / $gameHeight) * 480
+
+[TextureRedefine]
+width = 854
+height = 480
+formats = 0x01a,0x011,0x41a
+overwriteWidth = ($height / $gameHeight) * 854
+overwriteHeight = ($height / $gameHeight) * 480
+
+[TextureRedefine]
+width = 1024
+height = 1024
+formats = 0x80e,0x011
+overwriteWidth = ($height / $gameHeight) * 1024
+overwriteHeight = ($height / $gameHeight) * 1024

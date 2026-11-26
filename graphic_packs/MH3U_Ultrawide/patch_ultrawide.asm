@@ -52,6 +52,48 @@ _uwSpriteScale:
 
 0x025e2450 = b _uwSprite
 
+; In-quest markers above a hunter's head (uIDCockpitAbovehead): the head is projected to a fixed 1920-wide canvas
+; as (x/w + 1) * 960 and drawn through the squeezed HUD, which pulled the marker toward the centre.
+; Widen the projected x by the camera factor so it lands over the hunter again.
+_uwTag:
+lis r12, _uwFactor@ha
+lfs f9, _uwFactor@l(r12)
+fmuls f9, f10, f9
+fmadds f7, f9, f12, f0
+b 0x025f2f34
+
+0x025f2f30 = b _uwTag
+
+; Hall name tags and NPC speech bubbles (uIDLobbyNpcMsg): one leaf maps each projected point to 1920 x 1080 as
+; (x + 1) * 0.5 * 1920, and the squeezed HUD pulled it toward the centre. Same fix: x * factor + 1.
+_uwNpc:
+lis r12, _uwFactor@ha
+lfs f10, _uwFactor@l(r12)
+fmadds f9, f7, f10, f12
+b 0x026a8f34
+
+0x026a8f30 = b _uwNpc
+
+; In-quest name tags over teammates and their Felyne / Cha-Cha (uIDCockpitSign): two routines project each head and
+; map it as (x/w + 1) * 0.5 * 1920. Same fix at both: multiply the projected x by the camera factor first.
+_uwSignA:
+lis r12, _uwFactor@ha
+lfs f0, _uwFactor@l(r12)
+fmuls f0, f6, f0
+fmadds f7, f0, f3, f12
+b 0x026181d0
+
+0x026181cc = b _uwSignA
+
+_uwSignB:
+lis r12, _uwFactor@ha
+lfs f7, _uwFactor@l(r12)
+fmuls f0, f0, f7
+fmadds f11, f0, f6, f12
+b 0x02618998
+
+0x02618994 = b _uwSignB
+
 [MH3U_Ultrawide_EU_v32]
 moduleMatches = 0xADA406E7, 0xA386FAF4, 0x9F1D81A4, 0x913F7DB7
 
@@ -106,6 +148,48 @@ _uwSpriteScale:
 
 0x025e23c8 = b _uwSprite
 
+; In-quest markers above a hunter's head (uIDCockpitAbovehead): the head is projected to a fixed 1920-wide canvas
+; as (x/w + 1) * 960 and drawn through the squeezed HUD, which pulled the marker toward the centre.
+; Widen the projected x by the camera factor so it lands over the hunter again.
+_uwTag:
+lis r12, _uwFactor@ha
+lfs f9, _uwFactor@l(r12)
+fmuls f9, f10, f9
+fmadds f7, f9, f12, f0
+b 0x025f2eac
+
+0x025f2ea8 = b _uwTag
+
+; Hall name tags and NPC speech bubbles (uIDLobbyNpcMsg): one leaf maps each projected point to 1920 x 1080 as
+; (x + 1) * 0.5 * 1920, and the squeezed HUD pulled it toward the centre. Same fix: x * factor + 1.
+_uwNpc:
+lis r12, _uwFactor@ha
+lfs f10, _uwFactor@l(r12)
+fmadds f9, f7, f10, f12
+b 0x026a8eac
+
+0x026a8ea8 = b _uwNpc
+
+; In-quest name tags over teammates and their Felyne / Cha-Cha (uIDCockpitSign): two routines project each head and
+; map it as (x/w + 1) * 0.5 * 1920. Same fix at both: multiply the projected x by the camera factor first.
+_uwSignA:
+lis r12, _uwFactor@ha
+lfs f0, _uwFactor@l(r12)
+fmuls f0, f6, f0
+fmadds f7, f0, f3, f12
+b 0x02618148
+
+0x02618144 = b _uwSignA
+
+_uwSignB:
+lis r12, _uwFactor@ha
+lfs f7, _uwFactor@l(r12)
+fmuls f0, f0, f7
+fmadds f11, f0, f6, f12
+b 0x02618910
+
+0x0261890c = b _uwSignB
+
 [MH3U_Ultrawide_JP_v96]
 moduleMatches = 0x348600A0
 
@@ -159,3 +243,45 @@ _uwSpriteScale:
 .float ($gameWidth * $height) / ($gameHeight * $width)
 
 0x025e27d0 = b _uwSprite
+
+; In-quest markers above a hunter's head (uIDCockpitAbovehead): the head is projected to a fixed 1920-wide canvas
+; as (x/w + 1) * 960 and drawn through the squeezed HUD, which pulled the marker toward the centre.
+; Widen the projected x by the camera factor so it lands over the hunter again.
+_uwTag:
+lis r12, _uwFactor@ha
+lfs f9, _uwFactor@l(r12)
+fmuls f9, f10, f9
+fmadds f7, f9, f12, f0
+b 0x025f32b4
+
+0x025f32b0 = b _uwTag
+
+; Hall name tags and NPC speech bubbles (uIDLobbyNpcMsg): one leaf maps each projected point to 1920 x 1080 as
+; (x + 1) * 0.5 * 1920, and the squeezed HUD pulled it toward the centre. Same fix: x * factor + 1.
+_uwNpc:
+lis r12, _uwFactor@ha
+lfs f10, _uwFactor@l(r12)
+fmadds f9, f7, f10, f12
+b 0x026a9238
+
+0x026a9234 = b _uwNpc
+
+; In-quest name tags over teammates and their Felyne / Cha-Cha (uIDCockpitSign): two routines project each head and
+; map it as (x/w + 1) * 0.5 * 1920. Same fix at both: multiply the projected x by the camera factor first.
+_uwSignA:
+lis r12, _uwFactor@ha
+lfs f0, _uwFactor@l(r12)
+fmuls f0, f6, f0
+fmadds f7, f0, f3, f12
+b 0x02618550
+
+0x0261854c = b _uwSignA
+
+_uwSignB:
+lis r12, _uwFactor@ha
+lfs f7, _uwFactor@l(r12)
+fmuls f0, f0, f7
+fmadds f11, f0, f6, f12
+b 0x02618d18
+
+0x02618d14 = b _uwSignB

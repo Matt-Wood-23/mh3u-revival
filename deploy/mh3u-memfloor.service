@@ -1,0 +1,22 @@
+[Unit]
+Description=Memory floor: keeps the VM above Oracle's idle-instance memory threshold
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/mh3u/memory_floor.py 350
+DynamicUser=yes
+LimitMEMLOCK=infinity
+MemoryMax=420M
+# if the VM ever runs short of memory, this goes first, never the game server
+OOMScoreAdjust=1000
+Nice=19
+Restart=always
+RestartSec=60
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -2,7 +2,7 @@
 titleIds = 0005000010118300,0005000010117200,0005000010104D00
 name = "Ultrawide"
 path = "Monster Hunter 3 Ultimate/Graphics/Ultrawide"
-description = "Renders the game wider than 16:9 instead of stretching it. Pick your monitor's resolution. The HUD and menus stay 16:9 in the middle of the screen. Turn off the Resolution pack while this is on (both resize the same buffers), and set Cemu's scaling to Keep aspect ratio. US v32, EU v32, JP v96."
+description = "Renders the game wider than 16:9 instead of stretching it. Pick your monitor's resolution. The HUD sits at the screen edges; menus stay 16:9 in the middle of the screen. Turn off the Resolution pack while this is on (both resize the same buffers), and set Cemu's scaling to Keep aspect ratio. US v32, EU v32, JP v96."
 version = 7
 
 [Default]
@@ -10,6 +10,7 @@ $width = 3440
 $height = 1440
 $gameWidth = 1920
 $gameHeight = 1080
+$hudEdges = 1
 
 [Preset]
 name = 2560x1080 (21:9)
